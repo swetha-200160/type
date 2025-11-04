@@ -1,52 +1,136 @@
 pipeline {
   agent any
+
   environment {
-    VENV = "${WORKSPACE}\\C:\jenkins-artifacts\jenkins pipeline"
-    BUILD_DIR = "${WORKSPACE}\\C:\jenkins-artifacts\jenkins pipeline"
-    PERSISTENT_DIR = "D:\testproject\Html\jenkins-articrafts"   // change to existing path
+    // use forward slashes to avoid Groovy escaping headaches
+    VENV = "${WORKSPACE}/venv"
+    BUILD_DIR = "${WORKSPACE}/build"
+    // persistent path on the agent where you want a permanent copy
+    PERSISTENT_DIR = "D:/testproject/Html/jenkins-artifacts"
   }
+
   stages {
-    stage('Checkout') { steps { checkout scm } }
-    stage('Create venv') {
+    stage('Checkout') {
+      steps { checkout scm }
+    }
+
+    stage('Debug before build') {
       steps {
         bat '''
         @echo off
-        py -3 -m venv "%VENV%" || python -m venv "%VENV%"
-        "%VENV%\\Scripts\\python.exe" -m pip install --upgrade pip
-        if exist requirements.txt "%VENV%\\Scripts\\pip.exe" install -r requirements.txt
+        echo ==== DEBUG BEFORE BUILD ====
+        echo Running on: %COMPUTERNAME%
+        echo WORKSPACE=%WORKSPACE%
+        dir "%WORKSPACE%" /A
         '''
       }
     }
+
+    stage('Create venv & install deps') {
+      steps {
+        bat '''
+        @echo off
+        if not exist "%VENV%" (
+          py -3 -m venv "%VENV%" || python -m venv "%VENV%"
+        )
+        "%VENV%\\Scripts\\python.exe" -m pip install --upgrade pip setuptools wheel
+        if exist requirements.txt (
+          "%VENV%\\Scripts\\pip.exe" install -r requirements.txt
+        ) else (
+          echo "No requirements.txt found; skipping pip install"
+        )
+        '''
+      }
+    }
+
     stage('Train & Build') {
       steps {
         bat '''
         @echo off
-        if not exist "C:\jenkins-artifacts\jenkins pipeline" mkdir "C:\jenkins-artifacts\jenkins pipeline"
-        "%VENV%\\Scripts\\python.exe" src\\model\\train.py || echo training failed
-        if exist build.bat (
-          call build.bat
+        echo ==== TRAIN & BUILD ====
+        powershell -NoProfile -Command "New-Item -ItemType Directory -Force -Path '%BUILD_DIR%' | Out-Null"
+
+        REM run training (if train.py exists)
+        if exist src\\model\\train.py (
+          "%VENV%\\Scripts\\python.exe" src\\model\\train.py
         ) else (
-          powershell -Command "Compress-Archive -Path src,README.md -DestinationPath 'C:\jenkins-artifacts\jenkins pipeline' -Force"
+          echo "Warning: src\\model\\train.py not found"
         )
-        dir "%BUILD_DIR%"
+
+        REM create artifact zip (use filename in DEST)
+        powershell -NoProfile -Command ^
+          " $paths = @(); if (Test-Path 'src') { $paths += 'src' }; if (Test-Path 'README.md') { $paths += 'README.md' }; ^
+            if ($paths.Count -eq 0) { Write-Error 'Nothing to archive (no src or README.md)'; exit 1 } ^
+            ; Compress-Archive -Path $paths -DestinationPath '%BUILD_DIR%\\project.zip' -Force; Write-Host 'Created %BUILD_DIR%\\project.zip' "
+
+        echo "Build directory listing:"
+        dir "%BUILD_DIR%" /A
         '''
       }
     }
+
     stage('Archive') {
-      steps { archiveArtifacts artifacts: 'build\\\\**', allowEmptyArchive: true }
+      steps {
+        // archive build artifacts for Jenkins UI
+        archiveArtifacts artifacts: 'build/**', allowEmptyArchive: true
+      }
     }
-    stage('Persist locally') {
+
+    stage('Persist locally (robocopy)') {
       steps {
         bat '''
         @echo off
-        if not exist "D:\testproject\Html\jenkins-articrafts\\" mkdir "D:\testproject\Html\jenkins-articrafts\\"%JOB_NAME%"
-        xcopy "D:\testproject\Html\jenkins-articrafts" "D:\testproject\Html\jenkins-articrafts\\%BUILD_NUMBER%_build\\build" /E /I /Y
-        echo Copied build to D:\testproject\Html\jenkins-articrafts\\%JOB_NAME%\\%BUILD_NUMBER%_build
+        echo ==== COPY TO PERSISTENT DIR (robocopy) ====
+        echo PERSISTENT_DIR=%PERSISTENT_DIR%
+
+        REM ensure persistent root exists
+        powershell -NoProfile -Command "New-Item -ItemType Directory -Force -Path '%PERSISTENT_DIR%' | Out-Null"
+
+        REM prepare destination for this job/build
+        set DEST=%PERSISTENT_DIR%\\%JOB_NAME%\\%BUILD_NUMBER%_build\\build
+        powershell -NoProfile -Command "New-Item -ItemType Directory -Force -Path '%DEST%' | Out-Null"
+
+        REM check build dir exists and not empty
+        if not exist "%BUILD_DIR%" (
+          echo ERROR: Build directory not found: %BUILD_DIR%
+          exit /b 2
+        )
+
+        REM run robocopy (mirror, copy data/attrs/timestamps, retry 3 times, wait 5s)
+        REM /MIR mirrors directory (be careful, will delete dest files not in source)
+        REM /NFL /NDL reduce logging (change if you want more output)
+        robocopy "%BUILD_DIR%" "%DEST%" /MIR /COPY:DAT /R:3 /W:5 /NP /NFL /NDL
+        set RC=%ERRORLEVEL%
+        echo robocopy exit code: %RC%
+
+        REM robocopy exit codes: 0-7 are success/warn, >=8 is failure
+        if %RC% GEQ 8 (
+          echo ERROR: robocopy failed with exit code %RC%
+          exit /b %RC%
+        ) else (
+          echo "robocopy completed with exit code %RC% (treated as success)"
+        )
+
+        echo "Destination listing:"
+        dir "%DEST%" /A
+        '''
+      }
+    }
+
+    stage('Debug after copy') {
+      steps {
+        bat '''
+        @echo off
+        echo ==== FINAL WORKSPACE LISTING TOP ====
+        dir "%WORKSPACE%" /A
         '''
       }
     }
   }
+
   post {
     success { echo "Pipeline succeeded" }
+    failure { echo "Pipeline failed — check console output" }
+    always { echo "Finished" }
   }
 }
