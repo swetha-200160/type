@@ -1,9 +1,9 @@
 pipeline {
   agent any
   environment {
-    VENV = "${WORKSPACE}\\venv"
-    BUILD_DIR = "${WORKSPACE}\\build"
-    PERSISTENT_DIR = "C:\\jenkins-artifacts"   // change to existing path
+    VENV = "${WORKSPACE}\\C:\jenkins-artifacts\jenkins pipeline"
+    BUILD_DIR = "${WORKSPACE}\\C:\jenkins-artifacts\jenkins pipeline"
+    PERSISTENT_DIR = "D:\testproject\Html\jenkins-articrafts"   // change to existing path
   }
   stages {
     stage('Checkout') { steps { checkout scm } }
@@ -21,12 +21,12 @@ pipeline {
       steps {
         bat '''
         @echo off
-        if not exist "%BUILD_DIR%" mkdir "%BUILD_DIR%"
+        if not exist "C:\jenkins-artifacts\jenkins pipeline" mkdir "C:\jenkins-artifacts\jenkins pipeline"
         "%VENV%\\Scripts\\python.exe" src\\model\\train.py || echo training failed
         if exist build.bat (
           call build.bat
         ) else (
-          powershell -Command "Compress-Archive -Path src,README.md -DestinationPath '%BUILD_DIR%\\project.zip' -Force"
+          powershell -Command "Compress-Archive -Path src,README.md -DestinationPath 'C:\jenkins-artifacts\jenkins pipeline' -Force"
         )
         dir "%BUILD_DIR%"
         '''
@@ -39,9 +39,9 @@ pipeline {
       steps {
         bat '''
         @echo off
-        if not exist "%PERSISTENT_DIR%\\%JOB_NAME%" mkdir "%PERSISTENT_DIR%\\%JOB_NAME%"
-        xcopy "%BUILD_DIR%" "%PERSISTENT_DIR%\\%JOB_NAME%\\%BUILD_NUMBER%_build\\build" /E /I /Y
-        echo Copied build to %PERSISTENT_DIR%\\%JOB_NAME%\\%BUILD_NUMBER%_build
+        if not exist "D:\testproject\Html\jenkins-articrafts\\" mkdir "D:\testproject\Html\jenkins-articrafts\\"%JOB_NAME%"
+        xcopy "D:\testproject\Html\jenkins-articrafts" "D:\testproject\Html\jenkins-articrafts\\%BUILD_NUMBER%_build\\build" /E /I /Y
+        echo Copied build to D:\testproject\Html\jenkins-articrafts\\%JOB_NAME%\\%BUILD_NUMBER%_build
         '''
       }
     }
