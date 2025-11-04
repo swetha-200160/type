@@ -2,8 +2,8 @@ pipeline {
   agent any
 
   environment {
-    VENV = "%WORKSPACE%\\\\venv"
-    BUILD_DIR = "%WORKSPACE%\\\\build"
+    VENV = "%WORKSPACE%C:\ProgramData\Jenkins\.jenkins\workspace\jenkins pipeline\ven"
+    BUILD_DIR = "%WORKSPACE%C:\ProgramData\Jenkins\.jenkins\workspace\jenkins pipeline\build"
     PERSISTENT_DIR = "C:\\jenkins-artifacts"   // <-- change to an accessible path on the Windows agent
   }
 
