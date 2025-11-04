@@ -2,110 +2,45 @@ pipeline {
   agent any
 
   environment {
-    VENV = "%WORKSPACE%C:\ProgramData\Jenkins\.jenkins\workspace\jenkins pipeline\ven"
-    BUILD_DIR = "%WORKSPACE%C:\ProgramData\Jenkins\.jenkins\workspace\jenkins pipeline\build"
-    PERSISTENT_DIR = "C:\\jenkins-artifacts"   // <-- change to an accessible path on the Windows agent
-  }
-
-  options {
-    timestamps()
-    disableConcurrentBuilds()
-    buildDiscarder(logRotator(daysToKeepStr: '14'))
+    VENV = "${WORKSPACE}/venv"
+    BUILD_DIR = "${WORKSPACE}/build"
+    PERSISTENT_DIR = "C:/jenkins-artifacts"
   }
 
   stages {
     stage('Checkout') { steps { checkout scm } }
 
-    stage('Agent diagnostics') {
+    stage('Create venv') {
       steps {
         bat '''
           @echo off
-          echo Running on: %COMPUTERNAME%
-          echo Workspace: %WORKSPACE%
-          echo User: %USERNAME%
-          where python >nul 2>&1 && where py >nul 2>&1
-          py -3 --version 2>nul || python --version 2>nul || echo no python found
+          py -3 -m venv "%VENV%"
+          "%VENV%\\Scripts\\python.exe" -m pip install --upgrade pip
+          echo Created venv at %VENV%
         '''
       }
     }
 
-    stage('Create venv & install') {
+    stage('Build sample') {
       steps {
         bat '''
           @echo off
-          setlocal
-          set PY_CMD=
-          where py >nul 2>&1
-          if %ERRORLEVEL%==0 ( set PY_CMD=py -3 ) else (
-            where python >nul 2>&1
-            if %ERRORLEVEL%==0 ( set PY_CMD=python ) else (
-              echo ERROR: No python found on PATH
-              exit /b 1
-            )
-          )
-          echo Using %PY_CMD%
-          %PY_CMD% -m venv "%WORKSPACE%\\venv"
-          "%WORKSPACE%\\venv\\Scripts\\python.exe" -m pip install --upgrade pip setuptools wheel
-          if exist requirements.txt (
-            "%WORKSPACE%\\venv\\Scripts\\pip.exe" install -r requirements.txt
-          )
-          endlocal
+          if not exist "%BUILD_DIR%" mkdir "%BUILD_DIR%"
+          powershell -Command "Compress-Archive -Path src,README.md -DestinationPath '%BUILD_DIR%\\project.zip' -Force"
+          echo Created artifact %BUILD_DIR%\\project.zip
         '''
       }
     }
 
-    stage('Train & Build') {
+    stage('Copy to persistent') {
       steps {
         bat '''
           @echo off
-          if exist "%WORKSPACE%\\build" rmdir /s /q "%WORKSPACE%\\build"
-          mkdir "%WORKSPACE%\\build"
-          "%WORKSPACE%\\venv\\Scripts\\python.exe" src\\model\\train.py || echo training script returned non-zero
-          REM If you have a build.bat, call it. If only build.sh exists, use PowerShell to zip.
-          if exist build.bat (
-            call build.bat
-          ) else (
-            powershell -Command "Compress-Archive -Path src,README.md,requirements.txt,Jenkinsfile -DestinationPath '%WORKSPACE%\\build\\ai-python-project-%DATE:~-4,4%%DATE:~4,2%%DATE:~7,2%_%TIME:~0,2%%TIME:~3,2%%TIME:~6,2%.zip' -Force"
-          )
-          dir "%WORKSPACE%\\build"
+          if not exist "%PERSISTENT_DIR%" mkdir "%PERSISTENT_DIR%"
+          xcopy "%BUILD_DIR%" "%PERSISTENT_DIR%\\%JOB_NAME%\\%BUILD_NUMBER%_build\\build" /E /I /Y
+          echo Copied to %PERSISTENT_DIR%\\%JOB_NAME%\\%BUILD_NUMBER%_build
         '''
       }
-    }
-
-    stage('Archive artifacts') {
-      steps {
-        archiveArtifacts artifacts: 'build\\\\**', allowEmptyArchive: true, fingerprint: true
-      }
-    }
-
-    stage('Copy to persistent local path') {
-      steps {
-        bat '''
-          @echo off
-          set DEST=%PERSISTENT_DIR%\\%JOB_NAME%\\%BUILD_NUMBER%_build
-          if not exist "%PERSISTENT_DIR%\\%JOB_NAME%" mkdir "%PERSISTENT_DIR%\\%JOB_NAME%"
-          if exist "%DEST%" rmdir /s /q "%DEST%"
-          xcopy "%WORKSPACE%\\build" "%DEST%\\build" /E /I /Y
-          echo Copied build to %DEST%
-          dir "%DEST%"
-        '''
-      }
-    }
-
-    stage('Debug final workspace') {
-      steps {
-        bat 'dir %WORKSPACE% /S | more'
-      }
-    }
-  }
-
-  post {
-    success { echo "Pipeline succeeded" }
-    unstable { echo "Pipeline unstable" }
-    failure { echo "Pipeline failed" }
-    always {
-      echo "Workspace left intact for debugging. Remove this and enable cleanWs() later to clean."
-      // cleanWs()
     }
   }
 }
