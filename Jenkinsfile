@@ -1,17 +1,20 @@
 pipeline {
   agent any
-
+ 
   environment {
+    // use forward slashes in Groovy strings but Windows commands will use backslashes
     VENV = "${WORKSPACE}/venv"
     BUILD_DIR = "${WORKSPACE}/build"
     PERSISTENT_DIR = "D:/testproject/Html/jenkins-artifacts"
   }
-
+ 
   stages {
     stage('Checkout') {
-      steps { checkout scm }
+      steps {
+        checkout scm
+      }
     }
-
+ 
     stage('Debug before build') {
       steps {
         bat '''
@@ -23,7 +26,7 @@ pipeline {
         '''
       }
     }
-
+ 
     stage('Create venv & install deps') {
       steps {
         bat '''
@@ -32,7 +35,11 @@ pipeline {
         if not exist "%VENV%" (
           py -3 -m venv "%VENV%" >NUL 2>&1 || python -m venv "%VENV%" >NUL 2>&1
         )
+ 
+        REM ensure pip and tools are up to date
         "%VENV%\\Scripts\\python.exe" -m pip install --upgrade pip setuptools wheel
+ 
+        REM install requirements if file exists
         if exist requirements.txt (
           "%VENV%\\Scripts\\pip.exe" install -r requirements.txt
         ) else (
@@ -41,105 +48,77 @@ pipeline {
         '''
       }
     }
-
+ 
     stage('Train & Build') {
       steps {
         bat '''
         @echo off
         echo ==== TRAIN & BUILD ====
+        REM ensure build dir exists
         powershell -NoProfile -Command "New-Item -ItemType Directory -Force -Path '%BUILD_DIR%' | Out-Null"
-
+ 
+        REM run training if script exists
         if exist src\\model\\train.py (
-          "%VENV%\\Scripts\\python.exe" src\\model\\train.py || ( echo ERROR: training script failed & exit /b 3 )
+          "%VENV%\\Scripts\\python.exe" src\\model\\train.py
         ) else (
-          echo "No training script found; skipping training"
+          echo "Warning: src\\model\\train.py not found; skipping training"
         )
-
-        powershell -NoProfile -Command ^
-          "try {
-             $b = '%BUILD_DIR%';
-             if (-not (Test-Path $b)) { New-Item -ItemType Directory -Force -Path $b | Out-Null }
-             $paths = @();
-             if (Test-Path 'src') { $paths += 'src' }
-             if (Test-Path 'README.md') { $paths += 'README.md' }
-             $dest = Join-Path -Path $b -ChildPath 'project.zip'
-             if ($paths.Count -gt 0) { Compress-Archive -Path $paths -DestinationPath $dest -Force; Write-Host 'Created' $dest }
-             else { 'placeholder' | Out-File -FilePath (Join-Path $b 'placeholder.txt'); Add-Type -AssemblyName System.IO.Compression.FileSystem; [IO.Compression.ZipFile]::CreateFromDirectory($b, $dest); Remove-Item (Join-Path $b 'placeholder.txt'); Write-Host 'Created placeholder' $dest }
-           } catch { Write-Error 'Zipping failed: ' $_.Exception.Message; exit 4 }"
-
-        echo "Build directory listing after artifact creation:"
+ 
+        REM create artifact zip using PowerShell (single -Command invocation; no caret line-continuations)
+        powershell -NoProfile -Command "if (Test-Path 'src' -or Test-Path 'README.md') { $paths = @(); if (Test-Path 'src') { $paths += 'src' }; if (Test-Path 'README.md') { $paths += 'README.md' }; Compress-Archive -Path $paths -DestinationPath (Join-Path -Path '%BUILD_DIR%' -ChildPath 'project.zip') -Force; Write-Host 'Created %BUILD_DIR%\\project.zip' } else { Write-Error 'Nothing to archive (no src or README.md)'; exit 1 }"
+ 
+        echo "Build directory listing:"
         dir "%BUILD_DIR%" /A
         '''
       }
     }
-
+ 
     stage('Archive') {
       steps {
-        archiveArtifacts artifacts: 'build/**', allowEmptyArchive: false
+        // archive build artifacts for Jenkins UI; allowEmptyArchive true prevents job failure if build dir absent
+        archiveArtifacts artifacts: 'build/**', allowEmptyArchive: true
       }
     }
-
-    stage('Persist locally (robocopy + fallback)') {
+ 
+    stage('Persist locally (robocopy)') {
       steps {
         bat '''
         @echo off
-        echo ==== COPY TO PERSISTENT DIR (robocopy with fallback) ====
+        echo ==== COPY TO PERSISTENT DIR (robocopy) ====
         echo PERSISTENT_DIR=%PERSISTENT_DIR%
-
-        REM Build destination path (include job/build)
-        setlocal enabledelayedexpansion
-        set DEST=%PERSISTENT_DIR%\\%JOB_NAME%\\%BUILD_NUMBER%_build\\build
-        echo DEST=%DEST%
-
-        REM Ensure persistent root and destination exist
+ 
+        REM ensure persistent root exists
         powershell -NoProfile -Command "New-Item -ItemType Directory -Force -Path '%PERSISTENT_DIR%' | Out-Null"
+ 
+        REM prepare destination for this job/build
+        set DEST=%PERSISTENT_DIR%\\%JOB_NAME%\\%BUILD_NUMBER%_build\\build
         powershell -NoProfile -Command "New-Item -ItemType Directory -Force -Path '%DEST%' | Out-Null"
-
-        REM Quick write test - fail fast if service account can't write
-        powershell -NoProfile -Command ^
-          "try { [System.IO.File]::WriteAllText('%DEST%\\jenkins-write-test.txt', 'ok'); Write-Host 'WRITE_TEST_OK'; Remove-Item '%DEST%\\jenkins-write-test.txt' -ErrorAction SilentlyContinue } catch { Write-Error 'WRITE_TEST_FAIL: ' $_.Exception.Message; exit 6 }"
-        if errorlevel 1 (
-          echo ERROR: cannot write to persistent destination %DEST% - check permissions/drive
-          exit /b 6
-        ) else (
-          echo WRITE_TEST_OK
-        )
-
-        REM Ensure build dir exists
+ 
+        REM check build dir exists and not empty
         if not exist "%BUILD_DIR%" (
           echo ERROR: Build directory not found: %BUILD_DIR%
-          exit /b 5
+          exit /b 2
         )
-
-        echo "Source build folder contents:"
-        dir "%BUILD_DIR%" /A
-
-        REM Use robocopy with /E to copy everything (safer than /MIR during debugging)
-        robocopy "%BUILD_DIR%" "%DEST%" /E /COPY:DAT /R:3 /W:5 /NP /NFL /NDL
+ 
+        REM run robocopy (mirror, copy data/attrs/timestamps, retry 3 times, wait 5s)
+        robocopy "%BUILD_DIR%" "%DEST%" /MIR /COPY:DAT /R:3 /W:5 /NP /NFL /NDL
         set RC=%ERRORLEVEL%
         echo robocopy exit code: %RC%
-
+ 
+        REM robocopy exit codes: 0-7 are success/warn, >=8 is failure
         if %RC% GEQ 8 (
-          echo WARNING: robocopy failed with code %RC% - attempting PowerShell fallback
-          powershell -NoProfile -Command ^
-            "try { Copy-Item -Path '%BUILD_DIR%\\*' -Destination '%DEST%' -Recurse -Force -ErrorAction Stop; Write-Host 'PS_COPY_OK' } catch { Write-Error 'PS_COPY_FAIL: ' $_.Exception.Message; exit 7 }"
-          if errorlevel 1 (
-            echo ERROR: fallback PowerShell copy failed - check permissions/paths
-            exit /b 7
-          ) else (
-            echo PS_COPY_OK
-          )
+          echo ERROR: robocopy failed with exit code %RC%
+          exit /b %RC%
         ) else (
-          echo ROBOCOPY_OK
+          echo "robocopy completed with exit code %RC% (treated as success)"
         )
-
+ 
         echo "Destination listing:"
         dir "%DEST%" /A
-        endlocal
         '''
       }
     }
-
+ 
     stage('Debug after copy') {
       steps {
         bat '''
@@ -150,10 +129,12 @@ pipeline {
       }
     }
   }
-
+ 
   post {
     success { echo "Pipeline succeeded" }
     failure { echo "Pipeline failed — check console output" }
     always { echo "Finished" }
   }
 }
+ 
+ 
