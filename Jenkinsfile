@@ -1,214 +1,111 @@
-// Jenkinsfile - Cross-platform Python pipeline with diagnostics
 pipeline {
   agent any
 
   environment {
-    VENV = 'venv'
-    REPORT_DIR = 'reports'
-    DIST_DIR = 'dist'
+    VENV = "%WORKSPACE%\\\\venv"
+    BUILD_DIR = "%WORKSPACE%\\\\build"
+    PERSISTENT_DIR = "C:\\jenkins-artifacts"   // <-- change to an accessible path on the Windows agent
   }
 
   options {
-    buildDiscarder(logRotator(daysToKeepStr: '14'))
     timestamps()
     disableConcurrentBuilds()
+    buildDiscarder(logRotator(daysToKeepStr: '14'))
   }
 
   stages {
-
-    stage('Checkout') {
-      steps {
-        echo "Checking out repository..."
-        checkout scm
-      }
-    }
+    stage('Checkout') { steps { checkout scm } }
 
     stage('Agent diagnostics') {
       steps {
-        script {
-          if (isUnix()) {
-            sh '''
-              echo "=== Unix diagnostics ==="
-              uname -a || true
-              echo "PATH=$PATH"
-              command -v python3 || command -v python || echo "python not found"
-              python3 --version 2>/dev/null || python --version 2>/dev/null || true
-            '''
-          } else {
-            bat '''
-              @echo off
-              echo === Windows diagnostics ===
-              echo COMPUTERNAME=%COMPUTERNAME%
-              echo PATH=%PATH%
-              where py || where python || echo "python/py not found"
-              py --version 2>nul || python --version 2>nul || echo "no python version available"
-            '''
-          }
-        }
+        bat '''
+          @echo off
+          echo Running on: %COMPUTERNAME%
+          echo Workspace: %WORKSPACE%
+          echo User: %USERNAME%
+          where python >nul 2>&1 && where py >nul 2>&1
+          py -3 --version 2>nul || python --version 2>nul || echo no python found
+        '''
       }
     }
 
-    stage('Create venv & upgrade pip') {
+    stage('Create venv & install') {
       steps {
-        script {
-          if (isUnix()) {
-            sh '''
-              set -e
-              # choose python3 or python
-              if command -v python3 >/dev/null 2>&1; then
-                PY=python3
-              elif command -v python >/dev/null 2>&1; then
-                PY=python
-              else
-                echo "ERROR: python not found on PATH. Install Python on this agent."
-                exit 1
-              fi
-              echo "Using $PY to create venv"
-              $PY -m venv ${VENV}
-              ${VENV}/bin/python -m pip install --upgrade pip setuptools wheel
-            '''
-          } else {
-            // Windows: prefer py -3, fall back to python
-            bat '''
-            @echo off
-            setlocal enabledelayedexpansion
-            set PY_CMD=
-            where py >nul 2>&1
-            if %ERRORLEVEL%==0 ( set PY_CMD=py -3 ) else (
-              where python >nul 2>&1
-              if %ERRORLEVEL%==0 ( set PY_CMD=python ) else (
-                echo ERROR: Neither 'py' nor 'python' found on PATH. Install Python on this agent and restart Jenkins.
-                exit /b 1
-              )
+        bat '''
+          @echo off
+          setlocal
+          set PY_CMD=
+          where py >nul 2>&1
+          if %ERRORLEVEL%==0 ( set PY_CMD=py -3 ) else (
+            where python >nul 2>&1
+            if %ERRORLEVEL%==0 ( set PY_CMD=python ) else (
+              echo ERROR: No python found on PATH
+              exit /b 1
             )
-            echo Using %PY_CMD% to create venv
-            %PY_CMD% -m venv %VENV%
-            "%VENV%\\Scripts\\python.exe" -m pip install --upgrade pip setuptools wheel
-            endlocal
-            '''
-          }
-        }
+          )
+          echo Using %PY_CMD%
+          %PY_CMD% -m venv "%WORKSPACE%\\venv"
+          "%WORKSPACE%\\venv\\Scripts\\python.exe" -m pip install --upgrade pip setuptools wheel
+          if exist requirements.txt (
+            "%WORKSPACE%\\venv\\Scripts\\pip.exe" install -r requirements.txt
+          )
+          endlocal
+        '''
       }
     }
 
-    stage('Install dependencies') {
+    stage('Train & Build') {
       steps {
-        script {
-          if (isUnix()) {
-            sh '''
-              set -e
-              if [ -f requirements.txt ]; then
-                ${VENV}/bin/python -m pip install -r requirements.txt
-              else
-                echo "No requirements.txt found; skipping pip install"
-              fi
-            '''
-          } else {
-            bat '''
-            @echo off
-            if exist requirements.txt (
-              "%VENV%\\Scripts\\python.exe" -m pip install -r requirements.txt
-            ) else (
-              echo No requirements.txt found; skipping pip install
-            )
-            '''
-          }
-        }
+        bat '''
+          @echo off
+          if exist "%WORKSPACE%\\build" rmdir /s /q "%WORKSPACE%\\build"
+          mkdir "%WORKSPACE%\\build"
+          "%WORKSPACE%\\venv\\Scripts\\python.exe" src\\model\\train.py || echo training script returned non-zero
+          REM If you have a build.bat, call it. If only build.sh exists, use PowerShell to zip.
+          if exist build.bat (
+            call build.bat
+          ) else (
+            powershell -Command "Compress-Archive -Path src,README.md,requirements.txt,Jenkinsfile -DestinationPath '%WORKSPACE%\\build\\ai-python-project-%DATE:~-4,4%%DATE:~4,2%%DATE:~7,2%_%TIME:~0,2%%TIME:~3,2%%TIME:~6,2%.zip' -Force"
+          )
+          dir "%WORKSPACE%\\build"
+        '''
       }
     }
 
-    stage('Run tests (pytest)') {
+    stage('Archive artifacts') {
       steps {
-        script {
-          if (isUnix()) {
-            sh '''
-              set -e
-              mkdir -p ${REPORT_DIR}
-              ${VENV}/bin/python -m pip install -U pytest || true
-              ${VENV}/bin/python -m pytest --junitxml=${REPORT_DIR}/results.xml || true
-            '''
-          } else {
-            bat '''
-            @echo off
-            if not exist %REPORT_DIR% mkdir %REPORT_DIR%
-            "%VENV%\\Scripts\\python.exe" -m pip install -U pytest || exit /b 0
-            "%VENV%\\Scripts\\python.exe" -m pytest --junitxml=%REPORT_DIR%\\results.xml || exit /b 0
-            '''
-          }
-        }
-      }
-      post {
-        always {
-          junit allowEmptyResults: true, testResults: "${REPORT_DIR}/*.xml"
-        }
+        archiveArtifacts artifacts: 'build\\\\**', allowEmptyArchive: true, fingerprint: true
       }
     }
 
-    stage('Build package (optional)') {
+    stage('Copy to persistent local path') {
       steps {
-        script {
-          if (isUnix()) {
-            sh '''
-              set -e
-              if [ -f pyproject.toml ] || [ -f setup.py ]; then
-                ${VENV}/bin/python -m pip install -U build || true
-                rm -rf ${DIST_DIR} || true
-                ${VENV}/bin/python -m build --outdir ${DIST_DIR} || true
-              else
-                echo "No pyproject.toml or setup.py found; skipping build"
-              fi
-            '''
-            archiveArtifacts artifacts: "${DIST_DIR}/**", allowEmptyArchive: true
-          } else {
-            bat '''
-            @echo off
-            set BUILD_OK=0
-            if exist pyproject.toml set BUILD_OK=1
-            if exist setup.py set BUILD_OK=1
-            if %BUILD_OK%==1 (
-              "%VENV%\\Scripts\\python.exe" -m pip install -U build || exit /b 0
-              if exist %DIST_DIR% rmdir /s /q %DIST_DIR%
-              "%VENV%\\Scripts\\python.exe" -m build --outdir %DIST_DIR% || exit /b 0
-            ) else (
-              echo No pyproject.toml or setup.py found; skipping build
-            )
-            '''
-            archiveArtifacts artifacts: "${DIST_DIR}\\\\**", allowEmptyArchive: true
-          }
-        }
+        bat '''
+          @echo off
+          set DEST=%PERSISTENT_DIR%\\%JOB_NAME%\\%BUILD_NUMBER%_build
+          if not exist "%PERSISTENT_DIR%\\%JOB_NAME%" mkdir "%PERSISTENT_DIR%\\%JOB_NAME%"
+          if exist "%DEST%" rmdir /s /q "%DEST%"
+          xcopy "%WORKSPACE%\\build" "%DEST%\\build" /E /I /Y
+          echo Copied build to %DEST%
+          dir "%DEST%"
+        '''
       }
     }
 
-    stage('Run script (example)') {
+    stage('Debug final workspace') {
       steps {
-        script {
-          if (isUnix()) {
-            sh '''
-              if [ -f main.py ]; then
-                ${VENV}/bin/python main.py
-              else
-                echo "main.py not found; skipping run"
-              fi
-            '''
-          } else {
-            bat '''
-            @echo off
-            if exist main.py (
-              "%VENV%\\Scripts\\python.exe" main.py
-            ) else (
-              echo main.py not found; skipping run
-            )
-            '''
-          }
-        }
+        bat 'dir %WORKSPACE% /S | more'
       }
     }
-  } // stages
+  }
 
   post {
     success { echo "Pipeline succeeded" }
-    unstable { echo "Pipeline finished with unstable results" }
+    unstable { echo "Pipeline unstable" }
     failure { echo "Pipeline failed" }
-    always { cleanWs() }
+    always {
+      echo "Workspace left intact for debugging. Remove this and enable cleanWs() later to clean."
+      // cleanWs()
+    }
   }
 }
