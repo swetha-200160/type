@@ -73,6 +73,7 @@ pipeline {
       }
     }
  
+
     stage('Archive') {
       steps {
         // archive build artifacts for Jenkins UI; allowEmptyArchive true prevents job failure if build dir absent
@@ -81,43 +82,24 @@ pipeline {
     }
  
     stage('Persist locally (robocopy)') {
-      steps {
-        bat '''
-        @echo off
-        echo ==== COPY TO PERSISTENT DIR (robocopy) ====
-        echo PERSISTENT_DIR=%PERSISTENT_DIR%
- 
-        REM ensure persistent root exists
-        powershell -NoProfile -Command "New-Item -ItemType Directory -Force -Path '%PERSISTENT_DIR%' | Out-Null"
- 
-        REM prepare destination for this job/build
-        set DEST=%PERSISTENT_DIR%\\%JOB_NAME%\\%BUILD_NUMBER%_build\\build
-        powershell -NoProfile -Command "New-Item -ItemType Directory -Force -Path '%DEST%' | Out-Null"
- 
-        REM check build dir exists and not empty
-        if not exist "%BUILD_DIR%" (
-          echo ERROR: Build directory not found: %BUILD_DIR%
-          exit /b 2
-        )
- 
-        REM run robocopy (mirror, copy data/attrs/timestamps, retry 3 times, wait 5s)
-        robocopy "%BUILD_DIR%" "%DEST%" /MIR /COPY:DAT /R:3 /W:5 /NP /NFL /NDL
-        set RC=%ERRORLEVEL%
-        echo robocopy exit code: %RC%
- 
-        REM robocopy exit codes: 0-7 are success/warn, >=8 is failure
-        if %RC% GEQ 8 (
-          echo ERROR: robocopy failed with exit code %RC%
-          exit /b %RC%
-        ) else (
-          echo "robocopy completed with exit code %RC% (treated as success)"
-        )
- 
-        echo "Destination listing:"
-        dir "%DEST%" /A
-        '''
-      }
-    }
+  steps {
+    bat '''
+    @echo off
+    echo ==== COPY TO LOCAL (robocopy) ====
+    echo Copying from %BUILD_DIR% to %PERSISTENT_DIR%
+
+    REM Ensure destination exists
+    powershell -NoProfile -Command "New-Item -ItemType Directory -Force -Path '%PERSISTENT_DIR%' | Out-Null"
+
+    REM Copy files with verbose output
+    robocopy "%BUILD_DIR%" "%PERSISTENT_DIR%" *.* /E /COPYALL /R:1 /W:1 /V
+
+    echo ==== AFTER COPY ====
+    dir "%PERSISTENT_DIR%" /A
+    '''
+  }
+}
+
  
     stage('Debug after copy') {
       steps {
