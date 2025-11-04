@@ -88,14 +88,18 @@ pipeline {
     echo ==== COPY TO LOCAL (robocopy) ====
     echo Copying from %BUILD_DIR% to %PERSISTENT_DIR%
 
-    REM Ensure destination exists
+    REM === Create the destination folder if it doesn't exist ===
     powershell -NoProfile -Command "New-Item -ItemType Directory -Force -Path '%PERSISTENT_DIR%' | Out-Null"
 
-    REM Copy files with verbose output
-    robocopy "%BUILD_DIR%" "%PERSISTENT_DIR%" *.* /E /COPYALL /R:1 /W:1 /V
+    REM === Copy everything (files + folders) from Jenkins build directory ===
+    REM /E copies all subdirectories (even empty)
+    REM /COPYALL copies all attributes (data, timestamps, permissions, etc.)
+    REM /R:1 /W:1 retries once, waits 1 sec
+    REM /V shows verbose details
+    robocopy "%WORKSPACE%" "%PERSISTENT_DIR%" *.* /E /COPYALL /R:1 /W:1 /V
 
     echo ==== AFTER COPY ====
-    dir "%PERSISTENT_DIR%" /A
+    dir "%PERSISTENT_DIR%" /S /A
     '''
   }
 }
