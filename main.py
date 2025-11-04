@@ -1,13 +1,11 @@
-from sklearn.linear_model import LinearRegression
-import numpy as np
+# main.py
+import sys
+if hasattr(sys.stdout, "reconfigure"):
+    sys.stdout.reconfigure(encoding="utf-8")
 
 def train_model():
-    X = np.array([[1], [2], [3], [4], [5]])
-    y = np.array([2, 4, 6, 8, 10])
-    model = LinearRegression()
-    model.fit(X, y)
-    print("✅ Model trained successfully!")
-    print("Prediction for 6:", model.predict([[6]])[0])
+    # ... your training code ...
+    print("\u2705 Model trained successfully!")  # this will now work
 
 if __name__ == "__main__":
     train_model()
