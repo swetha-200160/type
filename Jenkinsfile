@@ -4,7 +4,7 @@ pipeline {
   environment {
     // use forward slashes in Groovy strings but Windows commands will use backslashes
     VENV = "${WORKSPACE}/venv"
-    BUILD_DIR = "${WORKSPACE}/build"
+    BUILD_DIR = "D:/testproject/Html/jenkins-artifact/build"
     PERSISTENT_DIR = "D:/testproject/Html/jenkins-artifacts"
   }
  
