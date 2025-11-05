@@ -4,10 +4,8 @@ pipeline {
   environment {
     // use forward slashes in Groovy strings but Windows commands will use backslashes
     VENV = "${WORKSPACE}/venv"
-    BUILD_DIR = "C:\\ProgramData\\Jenkins\\.jenkins\\workspace\\auto_build\\build"
-"
+    BUILD_DIR = "${WORKSPACE}/build"
     PERSISTENT_DIR = "D:/testproject/Html/jenkins-artifacts"
-"
   }
  
   stages {
@@ -24,7 +22,7 @@ pipeline {
         echo ==== DEBUG BEFORE BUILD ====
         echo Running on: %COMPUTERNAME%
         echo WORKSPACE=%WORKSPACE%
-        dir "%WORKSPACE%"
+        dir "%WORKSPACE%" /A
         '''
       }
     }
@@ -57,8 +55,7 @@ pipeline {
         @echo off
         echo ==== TRAIN & BUILD ====
         REM ensure build dir exists
-        powershell -NoProfile -Command "New-Item -ItemType Directory -Force -Path "C:\\ProgramData\\Jenkins\\.jenkins\\workspace\\auto_build\\build
-"| Out-Null"
+        powershell -NoProfile -Command "New-Item -ItemType Directory -Force -Path '%BUILD_DIR%' | Out-Null"
  
         REM run training if script exists
         if exist src\\model\\train.py (
@@ -71,7 +68,7 @@ pipeline {
         powershell -NoProfile -Command "if (Test-Path 'src' -or Test-Path 'README.md') { $paths = @(); if (Test-Path 'src') { $paths += 'src' }; if (Test-Path 'README.md') { $paths += 'README.md' }; Compress-Archive -Path $paths -DestinationPath (Join-Path -Path '%BUILD_DIR%' -ChildPath 'project.zip') -Force; Write-Host 'Created %BUILD_DIR%\\project.zip' } else { Write-Error 'Nothing to archive (no src or README.md)'; exit 1 }"
  
         echo "Build directory listing:"
-        dir "C:\\ProgramData\\Jenkins\\.jenkins\\workspace\\auto_build\\build"/A
+        dir "%BUILD_DIR%" /A
         '''
       }
     }
@@ -91,20 +88,20 @@ pipeline {
         echo PERSISTENT_DIR=%PERSISTENT_DIR%
  
         REM ensure persistent root exists
-        powershell -NoProfile -Command "New-Item -ItemType Directory -Force -Path 'D:/testproject/Html/jenkins-artifact' | Out-Null"
+        powershell -NoProfile -Command "New-Item -ItemType Directory -Force -Path '%PERSISTENT_DIR%' | Out-Null"
  
         REM prepare destination for this job/build
-        set DEST=D:/testproject/Html/jenkins-artifact\\%JOB_NAME%\\%BUILD_NUMBER%_build\\build
-        powershell -NoProfile -Command "New-Item -ItemType Directory -Force -Path 'C:\\ProgramData\\Jenkins\\.jenkins\\workspace\\auto_build\\build' | Out-Null"
+        set DEST=%PERSISTENT_DIR%\\%JOB_NAME%\\%BUILD_NUMBER%_build\\build
+        powershell -NoProfile -Command "New-Item -ItemType Directory -Force -Path '%DEST%' | Out-Null"
  
         REM check build dir exists and not empty
-        if not exist "C:\\ProgramData\\Jenkins\\.jenkins\\workspace\\auto_build\\build" (
+        if not exist "%BUILD_DIR%" (
           echo ERROR: Build directory not found: %BUILD_DIR%
           exit /b 2
         )
  
         REM run robocopy (mirror, copy data/attrs/timestamps, retry 3 times, wait 5s)
-        robocopy "C:\\ProgramData\\Jenkins\\.jenkins\\workspace\\auto_build\\build" "D:/testproject/Html/jenkins-artifact" /MIR /COPY:DAT /R:3 /W:5 /NP /NFL /NDL
+        robocopy "%BUILD_DIR%" "%DEST%" /MIR /COPY:DAT /R:3 /W:5 /NP /NFL /NDL
         set RC=%ERRORLEVEL%
         echo robocopy exit code: %RC%
  
@@ -117,7 +114,7 @@ pipeline {
         )
  
         echo "Destination listing:"
-        dir "D:/testproject/Html/jenkins-artifact" /A
+        dir "%DEST%" /A
         '''
       }
     }
