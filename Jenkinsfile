@@ -119,25 +119,23 @@ dir "%ARTIFACT_DIR%"
             }
         }
  
-        stage('Copy Artifacts to Target') {
-            steps {
-                script {
-                    bat """
-@echo off
-set ARTIFACT_DIR=%WORKSPACE%\\build_artifacts
- 
-if not exist "${env.BUILD_OUTPUT}" mkdir "${env.BUILD_OUTPUT}"
- 
-robocopy "%ARTIFACT_DIR%" "${env.BUILD_OUTPUT}" /E /XO /R:2 /W:2 /NFL /NDL
- 
-set RC=%ERRORLEVEL%
-echo Robocopy exit code: %RC%
-if %RC% LEQ 7 (
-  echo Robocopy finished with acceptable code %RC%. Exiting success.
-  exit /b 0
-)
-echo Robocopy FAILED with code %RC%. Exiting with failure.
-exit /b %RC%
+        stage('Copy Artifacts (PowerShell)') {
+  steps {
+    bat '''
+powershell -NoProfile -Command ^
+  "$src='${WORKSPACE}\\build_artifacts'; $dst='${BUILD_OUTPUT}'; if(-not (Test-Path $dst)){ New-Item -ItemType Directory -Force -Path $dst } ; ^
+   Get-ChildItem -Recurse $src | ForEach-Object { ^
+      $rel = $_.FullName.Substring($src.Length+1); ^
+      $target = Join-Path $dst $rel; ^
+      $tDir = Split-Path $target -Parent; if(-not (Test-Path $tDir)){ New-Item -ItemType Directory -Force -Path $tDir } ; ^
+      Copy-Item -Path $_.FullName -Destination $target -Force ; ^
+   } ; ^
+   Write-Output 'Copied OK'; ^
+   Get-ChildItem -Recurse $dst | ForEach-Object { Write-Output (\"{0} {1}\" -f $_.Length,$_.FullName) }"
+'''
+  }
+}
+
 """
                 }
             }
