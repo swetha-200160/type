@@ -60,7 +60,7 @@ pipeline {
         if exist "%WORKSPACE%\\train.py" (
           echo "Running workspace root train.py"
           "%VENV%\\Scripts\\python.exe" "%WORKSPACE%\\train.py"
-        ) else if exist "%WORKSPACE%\\src\\model\\train.py" (
+        ) else if exist "%WORKSPACE%\\src\model\train.py" (
           echo "Running src\\model\\train.py"
           "%VENV%\\Scripts\\python.exe" "%WORKSPACE%\\src\\model\\train.py"
         ) else (
