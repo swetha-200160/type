@@ -3,7 +3,7 @@ pipeline {
 
     environment {
         // use double backslashes for Windows paths
-        BUILD_OUTPUT = "C:\\ProgramData\\python pjt"
+        BUILD_OUTPUT = "C:\\Users\\swethasuresh\\testing"
     }
 
     stages {
