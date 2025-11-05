@@ -59,7 +59,7 @@ REM ensure destination exists
 if not exist "${env.BUILD_OUTPUT}" mkdir "${env.BUILD_OUTPUT}"
 
 REM use robocopy to copy current workspace to destination, exclude .git
-robocopy "C:\Users\swethasuresh\Desktop\text.code" "C:\\Users\\swethasuresh\\testing" /E /XO /R:2 /W:2 /XD ".git" /NFL /NDL
+robocopy "C:\\Users\\swethasuresh\\Desktop\\text.code" "C:\\Users\\swethasuresh\\testing" /E /XO /R:2 /W:2 /XD ".git" /NFL /NDL
 
 REM capture robocopy exit code
 set RC=%ERRORLEVEL%
