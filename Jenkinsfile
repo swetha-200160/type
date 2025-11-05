@@ -37,8 +37,8 @@ if exist requirements.txt (
 if exist train.py (
     python train.py
 ) else (
-    if exist C:\ProgramData\python pjt\src\model (
-        python C:\ProgramData\python pjt\src\model
+    if exist C:\\ProgramData\\python pjt\\src\\model (
+        python C:\\ProgramData\\python pjt\\src\\model
     ) else (
         echo No train.py found!
     )
