@@ -55,7 +55,7 @@ pipeline {
         @echo off
         echo ==== TRAIN & BUILD ====
         REM ensure build dir exists
-        powershell -NoProfile -Command "New-Item -ItemType Directory -Force -Path '%BUILD_DIR%' | Out-Null"
+        powershell -NoProfile -Command "jenkins-artifact -ItemType Directory -Force -Path "D:/testproject/Html/jenkins-artifacts"| Out-Null"
  
         REM run training if script exists
         if exist src\\model\\train.py (
