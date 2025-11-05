@@ -1,8 +1,9 @@
-ipeline {
+pipeline {
     agent any
 
     environment {
-        BUILD_OUTPUT = "C://ProgramData/python pjt"
+        // use double backslashes for Windows paths
+        BUILD_OUTPUT = "C:\\ProgramData\\python pjt"
     }
 
     stages {
@@ -15,33 +16,36 @@ ipeline {
         }
 
         stage('Build') {
-    steps {
-        echo 'Building Python project...'
-        bat '''
-        @echo off
-        echo ==== PYTHON BUILD START ====
-        if not exist "venv\\Scripts\\python.exe" (
-            py -3 -m venv venv
-        )
-        call venv\\Scripts\\activate
-        python -m pip install --upgrade pip
-        if exist requirements.txt (
-            pip install -r requirements.txt
-        ) else (
-            pip install scikit-learn joblib
-        )
-        if exist train.py (
-            python train.py
-        ) else if exist src\\model\\train.py (
-            python src\\model\\train.py
-        ) else (
-            echo No train.py found!
-        )
-        echo ==== PYTHON BUILD END ====
-        '''
-    }
-}
+            steps {
+                echo 'Building Python project...'
+                bat '''
+@echo off
+echo ==== PYTHON BUILD START ====
+if not exist "venv\\Scripts\\python.exe" (
+    py -3 -m venv venv
+)
+call venv\\Scripts\\activate
 
+python -m pip install --upgrade pip
+
+if exist requirements.txt (
+    pip install -r requirements.txt
+) else (
+    pip install scikit-learn joblib
+)
+
+if exist train.py (
+    python train.py
+) else (
+    if exist src\\model\\train.py (
+        python src\\model\\train.py
+    ) else (
+        echo No train.py found!
+    )
+)
+
+echo ==== PYTHON BUILD END ====
+'''
             }
         }
 
@@ -49,30 +53,31 @@ ipeline {
             steps {
                 script {
                     echo "Copying entire workspace to ${env.BUILD_OUTPUT} (preserving folders)"
+                    // Using triple-double-quotes so ${env.BUILD_OUTPUT} is interpolated by Groovy
                     bat """
-                    REM ensure destination exists
-                    if not exist "${env.BUILD_OUTPUT}" mkdir "${env.BUILD_OUTPUT}"
+REM ensure destination exists
+if not exist "${env.BUILD_OUTPUT}" mkdir "${env.BUILD_OUTPUT}"
 
-                    REM use robocopy to copy current workspace to destination, exclude .git
-                    robocopy "%CD%" "${env.BUILD_OUTPUT}" /E /XO /R:2 /W:2 /XD ".git" /NFL /NDL
+REM use robocopy to copy current workspace to destination, exclude .git
+robocopy "%CD%" "${env.BUILD_OUTPUT}" /E /XO /R:2 /W:2 /XD ".git" /NFL /NDL
 
-                    REM capture robocopy exit code
-                    set RC=%ERRORLEVEL%
-                    echo Robocopy exit code: %RC%
+REM capture robocopy exit code
+set RC=%ERRORLEVEL%
+echo Robocopy exit code: %RC%
 
-                    REM treat 0-7 as success, >7 as failure
-                    if %RC% LEQ 7 (
-                      echo Robocopy finished with acceptable code %RC%. Exiting success.
-                      exit /b 0
-                    )
+REM treat 0-7 as success, >7 as failure
+if %RC% LEQ 7 (
+  echo Robocopy finished with acceptable code %RC%. Exiting success.
+  exit /b 0
+)
 
-                    echo Robocopy FAILED with code %RC%. Exiting with failure.
-                    exit /b %RC%
-                    """
+echo Robocopy FAILED with code %RC%. Exiting with failure.
+exit /b %RC%
+"""
                 }
             }
         }
-    
+    } // end stages
 
     post {
         success {
