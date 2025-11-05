@@ -4,9 +4,9 @@ pipeline {
   environment {
     // use forward slashes in Groovy strings but Windows commands will use backslashes
     VENV = "${WORKSPACE}/venv"
-    BUILD_DIR = "C:\ProgramData\Jenkins\.jenkins\workspace\auto_build\build
+    BUILD_DIR = "C:\\ProgramData\\Jenkins\\.jenkins\\workspace\\auto_build\\build"
 "
-    PERSISTENT_DIR = "C:\ProgramData\Jenkins\.jenkins\workspace\auto_build\build
+    PERSISTENT_DIR = "C:\\ProgramData\\Jenkins\\.jenkins\\workspace\\auto_build\\build"
 "
   }
  
@@ -57,7 +57,7 @@ pipeline {
         @echo off
         echo ==== TRAIN & BUILD ====
         REM ensure build dir exists
-        powershell -NoProfile -Command "New-Item -ItemType Directory -Force -Path "C:\ProgramData\Jenkins\.jenkins\workspace\auto_build\build
+        powershell -NoProfile -Command "New-Item -ItemType Directory -Force -Path "C:\\ProgramData\\Jenkins\\.jenkins\\workspace\\auto_build\\build
 "| Out-Null"
  
         REM run training if script exists
