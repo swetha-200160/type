@@ -2,7 +2,7 @@ pipeline {
     agent any
 
     environment {
-        BUILD_OUTPUT = "C:\ProgramData\python pjt"
+        BUILD_OUTPUT = "C://ProgramData/python pjt"
     }
 
     stages {
