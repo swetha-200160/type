@@ -71,7 +71,7 @@ pipeline {
         powershell -NoProfile -Command "if (Test-Path 'src' -or Test-Path 'README.md') { $paths = @(); if (Test-Path 'src') { $paths += 'src' }; if (Test-Path 'README.md') { $paths += 'README.md' }; Compress-Archive -Path $paths -DestinationPath (Join-Path -Path '%BUILD_DIR%' -ChildPath 'project.zip') -Force; Write-Host 'Created %BUILD_DIR%\\project.zip' } else { Write-Error 'Nothing to archive (no src or README.md)'; exit 1 }"
  
         echo "Build directory listing:"
-        dir "%BUILD_DIR%" /A
+        dir "C:\\ProgramData\\Jenkins\\.jenkins\\workspace\\auto_build\\build"/A
         '''
       }
     }
@@ -91,20 +91,20 @@ pipeline {
         echo PERSISTENT_DIR=%PERSISTENT_DIR%
  
         REM ensure persistent root exists
-        powershell -NoProfile -Command "New-Item -ItemType Directory -Force -Path '%PERSISTENT_DIR%' | Out-Null"
+        powershell -NoProfile -Command "New-Item -ItemType Directory -Force -Path 'D:/testproject/Html/jenkins-artifact' | Out-Null"
  
         REM prepare destination for this job/build
-        set DEST=%PERSISTENT_DIR%\\%JOB_NAME%\\%BUILD_NUMBER%_build\\build
-        powershell -NoProfile -Command "New-Item -ItemType Directory -Force -Path '%DEST%' | Out-Null"
+        set DEST=D:/testproject/Html/jenkins-artifact\\%JOB_NAME%\\%BUILD_NUMBER%_build\\build
+        powershell -NoProfile -Command "New-Item -ItemType Directory -Force -Path 'C:\\ProgramData\\Jenkins\\.jenkins\\workspace\\auto_build\\build' | Out-Null"
  
         REM check build dir exists and not empty
-        if not exist "%BUILD_DIR%" (
+        if not exist "C:\\ProgramData\\Jenkins\\.jenkins\\workspace\\auto_build\\build" (
           echo ERROR: Build directory not found: %BUILD_DIR%
           exit /b 2
         )
  
         REM run robocopy (mirror, copy data/attrs/timestamps, retry 3 times, wait 5s)
-        robocopy "%BUILD_DIR%" "%DEST%" /MIR /COPY:DAT /R:3 /W:5 /NP /NFL /NDL
+        robocopy "C:\\ProgramData\\Jenkins\\.jenkins\\workspace\\auto_build\\build" "D:/testproject/Html/jenkins-artifact" /MIR /COPY:DAT /R:3 /W:5 /NP /NFL /NDL
         set RC=%ERRORLEVEL%
         echo robocopy exit code: %RC%
  
@@ -117,7 +117,7 @@ pipeline {
         )
  
         echo "Destination listing:"
-        dir "%DEST%" /A
+        dir "D:/testproject/Html/jenkins-artifact" /A
         '''
       }
     }
