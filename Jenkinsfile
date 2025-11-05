@@ -8,7 +8,7 @@ pipeline {
     stages {
         stage('Checkout') {
             steps {
-                git branch: 'main',
+                git branch: 'master',
                     credentialsId: 'gitrepo',
                     url: 'https://github.com/swetha-200160/type.git'
             }
