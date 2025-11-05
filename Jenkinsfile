@@ -15,9 +15,33 @@ pipeline {
         }
 
         stage('Build') {
-            steps {
-                echo 'Building Java project...'
-                bat 'mvn clean package -DskipTests'
+    steps {
+        echo 'Building Python project...'
+        bat '''
+        @echo off
+        echo ==== PYTHON BUILD START ====
+        if not exist "venv\\Scripts\\python.exe" (
+            py -3 -m venv venv
+        )
+        call venv\\Scripts\\activate
+        python -m pip install --upgrade pip
+        if exist requirements.txt (
+            pip install -r requirements.txt
+        ) else (
+            pip install scikit-learn joblib
+        )
+        if exist train.py (
+            python train.py
+        ) else if exist src\\model\\train.py (
+            python src\\model\\train.py
+        ) else (
+            echo No train.py found!
+        )
+        echo ==== PYTHON BUILD END ====
+        '''
+    }
+}
+
             }
         }
 
