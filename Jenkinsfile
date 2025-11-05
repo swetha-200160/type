@@ -72,7 +72,7 @@ ipeline {
                 }
             }
         }
-    }
+    
 
     post {
         success {
