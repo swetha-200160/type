@@ -119,30 +119,32 @@ dir "%ARTIFACT_DIR%"
             }
         }
  
-        stage('Copy Artifacts to Target') {
-            steps {
-                script {
-                    bat """
+        stage('Debug - confirm env, source and target') {
+  steps {
+    bat '''
 @echo off
-set ARTIFACT_DIR=%WORKSPACE%\\build_artifacts
- 
-if not exist "${env.BUILD_OUTPUT}" mkdir "${env.BUILD_OUTPUT}"
- 
-robocopy "%ARTIFACT_DIR%" "${env.BUILD_OUTPUT}" /E /XO /R:2 /W:2 /NFL /NDL
- 
-set RC=%ERRORLEVEL%
-echo Robocopy exit code: %RC%
-if %RC% LEQ 7 (
-  echo Robocopy finished with acceptable code %RC%. Exiting success.
-  exit /b 0
-)
-echo Robocopy FAILED with code %RC%. Exiting with failure.
-exit /b %RC%
-"""
-                }
-            }
-        }
-    }
+echo ===== Jenkins ENV =====
+echo WORKSPACE=%WORKSPACE%
+echo BUILD_OUTPUT=${env.BUILD_OUTPUT}
+echo USER=%USERNAME%
+whoami
+
+echo ===== Source workspace listing (top) =====
+dir /S "%WORKSPACE%\\src\\model" || echo src\\model not found
+
+echo ===== build_artifacts listing =====
+dir /S "%WORKSPACE%\\build_artifacts" || echo build_artifacts not found
+
+echo ===== Target listing =====
+dir /S "${env.BUILD_OUTPUT}" || echo target not found
+
+echo ===== MD5 hashes (if files exist) =====
+if exist "%WORKSPACE%\\src\\model\\model.pkl" certutil -hashfile "%WORKSPACE%\\src\\model\\model.pkl" MD5
+if exist "${env.BUILD_OUTPUT}\\model.pkl" certutil -hashfile "${env.BUILD_OUTPUT}\\model.pkl" MD5
+'''
+  }
+}
+
  
     post {
         success {
