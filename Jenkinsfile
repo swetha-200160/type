@@ -2,7 +2,7 @@ pipeline {
   agent any
 
   environment {
-    // If you want to copy directly to your PC across the network, replace with UNC like "\\\\MY-PC\\JenkinsShare"
+    // Change to a UNC share like "\\\\MY-PC\\JenkinsShare" if you want to copy to your PC across the network
     BUILD_OUTPUT = "C:\\Users\\swethasuresh\\testing"
   }
 
@@ -51,7 +51,8 @@ if exist "%WORKSPACE%\\train.py" (
   echo No train.py found - skipping training run
 )
 
-echo Done prepare & build
+REM safe echo without ampersand
+echo Done prepare and build
 '''
       }
     }
@@ -80,20 +81,20 @@ dir /S "%ART_DIR%"
       }
     }
 
-   stage('Copy all project files to BUILD_OUTPUT') {
-  steps {
-    script {
-      echo "Resolved BUILD_OUTPUT (Groovy): ${env.BUILD_OUTPUT}"
-      bat """
+    stage('Copy all project files to BUILD_OUTPUT') {
+      steps {
+        script {
+          echo "Resolved BUILD_OUTPUT (Groovy): ${env.BUILD_OUTPUT}"
+          bat """
 @echo off
 set SRC=%WORKSPACE%
-set DEST=${env.BUILD_OUTPUT}
+set DEST="C:\\Users\\swethasuresh\\testing"
 
 echo ============================================
 echo Copying all files from:
 echo   %SRC%
 echo to:
-echo   %DEST%
+echo   "C:\\Users\\swethasuresh\\testing"
 echo ============================================
 
 REM Ensure destination exists
@@ -102,8 +103,8 @@ if not exist "%DEST%" (
   mkdir "%DEST%"
 )
 
-REM Copy everything except .git and Jenkins folders
-robocopy "%SRC%" "%DEST%" /E /XO /R:2 /W:2 /XD ".git" "venv" "build_artifacts" /NFL /NDL /NP /V
+REM Copy everything except .git, venv, and the artifact folder
+robocopy "%SRC%" "%DEST%" /E /XO /R:2 /W:2 /XD "%SRC%\\.git" "%SRC%\\venv" "%SRC%\\build_artifacts" /NFL /NDL /NP /V
 set RC=%ERRORLEVEL%
 
 echo Robocopy exit code: %RC%
@@ -115,9 +116,10 @@ if %RC% LEQ 7 (
   exit /b %RC%
 )
 """
+        }
+      }
     }
-  }
-}
+  } // end stages
 
   post {
     always {
@@ -131,4 +133,4 @@ if %RC% LEQ 7 (
       echo 'Pipeline failed — check Console Output for details.'
     }
   }
-}
+} // end pipeline
