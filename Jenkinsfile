@@ -1,4 +1,4 @@
-ipeline {
+pipeline {
     agent any
  
     environment {
@@ -84,40 +84,44 @@ if exist "%WORKSPACE%\\build_artifacts" (
         }
  
         stage('Gather Artifacts') {
-            steps {
-                script {
-                    bat """
+  steps {
+    bat """
 @echo off
+echo ==== GATHER ARTIFACTS ====
+echo WORKSPACE=%WORKSPACE%
 set ARTIFACT_DIR=%WORKSPACE%\\build_artifacts
  
-if exist "%ARTIFACT_DIR%" rmdir /S /Q "%ARTIFACT_DIR%"
+REM remove old and create new
+if exist "%ARTIFACT_DIR%" (
+  echo Removing existing %ARTIFACT_DIR%
+  rmdir /S /Q "%ARTIFACT_DIR%"
+)
 mkdir "%ARTIFACT_DIR%"
  
-REM copy model file if present
+REM copy model and folders (only if exist)
 if exist "%WORKSPACE%\\src\\model\\model.pkl" (
+  echo Copying model.pkl
   copy "%WORKSPACE%\\src\\model\\model.pkl" "%ARTIFACT_DIR%\\"
 )
  
-REM copy entire model folder if you want
 if exist "%WORKSPACE%\\src\\model" (
+  echo Copying full src\\model folder
   xcopy "%WORKSPACE%\\src\\model\\" "%ARTIFACT_DIR%\\model\\" /E /I /Y
 )
  
-REM copy dist folder
 if exist "%WORKSPACE%\\dist" (
+  echo Copying dist folder
   xcopy "%WORKSPACE%\\dist\\" "%ARTIFACT_DIR%\\dist\\" /E /I /Y
 )
  
-REM copy other useful files
 if exist "%WORKSPACE%\\requirements.txt" copy "%WORKSPACE%\\requirements.txt" "%ARTIFACT_DIR%\\"
 if exist "%WORKSPACE%\\train.log" copy "%WORKSPACE%\\train.log" "%ARTIFACT_DIR%\\"
  
-echo Artifacts prepared under %ARTIFACT_DIR%
+echo ==== ARTIFACT_DIR CONTENTS ====
 dir "%ARTIFACT_DIR%"
 """
-                }
-            }
-        }
+   }
+}
  
         stage('Copy Artifacts to Target') {
             steps {
@@ -153,4 +157,6 @@ exit /b %RC%
         }
     }
 }
+ 
+ 
  
