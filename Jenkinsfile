@@ -99,19 +99,19 @@ if exist "%ARTIFACT_DIR%" (
 mkdir "%ARTIFACT_DIR%"
  
 REM copy model and folders (only if exist)
-if exist "%WORKSPACE%C:\Users\swethasuresh\Desktop\text.code" (
+if exist "%WORKSPACE%\\src\\model\\model.pkl" (
   echo Copying model.pkl
-  copy "%WORKSPACE%C:\Users\swethasuresh\Desktop\text.code" "%ARTIFACT_DIR%\\"
+  copy "%WORKSPACE%\\src\\model\\model.pkl" "%ARTIFACT_DIR%\\"
 )
  
 if exist "%WORKSPACE%\\src\\model" (
   echo Copying full src\\model folder
-  xcopy "C:\Users\swethasuresh\Desktop\text.code" "%ARTIFACT_DIR%\\model\\" /E /I /Y
+  xcopy "%WORKSPACE%\\src\\model\\" "%ARTIFACT_DIR%\\model\\" /E /I /Y
 )
  
 if exist "%WORKSPACE%\\dist" (
   echo Copying dist folder
-  xcopy "C:\Users\swethasuresh\Desktop\text.code" "%ARTIFACT_DIR%\\dist\\" /E /I /Y
+  xcopy "%WORKSPACE%\\dist\\" "%ARTIFACT_DIR%\\dist\\" /E /I /Y
 )
  
 if exist "%WORKSPACE%\\requirements.txt" copy "%WORKSPACE%\\requirements.txt" "%ARTIFACT_DIR%\\"
