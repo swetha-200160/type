@@ -84,40 +84,94 @@ if exist "%WORKSPACE%\\build_artifacts" (
         }
  
         stage('Gather Artifacts') {
-            steps {
-                script {
-                    bat """
+  steps {
+    bat """
 @echo off
+echo ==== GATHER ARTIFACTS ====
+echo WORKSPACE=%WORKSPACE%
 set ARTIFACT_DIR=%WORKSPACE%\\build_artifacts
- 
-if exist "%ARTIFACT_DIR%" rmdir /S /Q "%ARTIFACT_DIR%"
+
+REM remove old and create new
+if exist "%ARTIFACT_DIR%" (
+  echo Removing existing %ARTIFACT_DIR%
+  rmdir /S /Q "%ARTIFACT_DIR%"
+)
 mkdir "%ARTIFACT_DIR%"
- 
-REM copy model file if present
+
+REM copy model and folders (only if exist)
 if exist "%WORKSPACE%\\src\\model\\model.pkl" (
+  echo Copying model.pkl
   copy "%WORKSPACE%\\src\\model\\model.pkl" "%ARTIFACT_DIR%\\"
 )
- 
-REM copy entire model folder if you want
+
 if exist "%WORKSPACE%\\src\\model" (
+  echo Copying full src\\model folder
   xcopy "%WORKSPACE%\\src\\model\\" "%ARTIFACT_DIR%\\model\\" /E /I /Y
 )
- 
-REM copy dist folder
+
 if exist "%WORKSPACE%\\dist" (
+  echo Copying dist folder
   xcopy "%WORKSPACE%\\dist\\" "%ARTIFACT_DIR%\\dist\\" /E /I /Y
 )
- 
-REM copy other useful files
+
 if exist "%WORKSPACE%\\requirements.txt" copy "%WORKSPACE%\\requirements.txt" "%ARTIFACT_DIR%\\"
 if exist "%WORKSPACE%\\train.log" copy "%WORKSPACE%\\train.log" "%ARTIFACT_DIR%\\"
- 
-echo Artifacts prepared under %ARTIFACT_DIR%
+
+echo ==== ARTIFACT_DIR CONTENTS ====
 dir "%ARTIFACT_DIR%"
 """
-                }
-            }
-        }
+  }
+}
+
+stage('Copy Artifacts to Target') {
+  steps {
+    script {
+      // show exact groovy-expanded path in pipeline log
+      echo "Resolved BUILD_OUTPUT (Groovy): ${env.BUILD_OUTPUT}"
+
+      bat """
+@echo off
+echo ==== COPY TO TARGET ====
+set ARTIFACT_DIR=%WORKSPACE%\\build_artifacts
+echo ARTIFACT_DIR=%ARTIFACT_DIR%
+echo BUILD_OUTPUT=${env.BUILD_OUTPUT}
+
+REM Make sure artifact dir exists and is not empty
+if not exist "%ARTIFACT_DIR%" (
+  echo ERROR: Artifact dir does not exist: %ARTIFACT_DIR%
+  exit /b 1
+)
+
+REM list files to copy
+dir /S "%ARTIFACT_DIR%"
+
+REM Ensure destination exists (create)
+if not exist "${env.BUILD_OUTPUT}" (
+  echo Creating destination ${env.BUILD_OUTPUT}
+  mkdir "${env.BUILD_OUTPUT}"
+) else (
+  echo Destination already exists
+)
+
+REM Robocopy - copy files and subfolders, preserve timestamps, retry minimal
+robocopy "%ARTIFACT_DIR%" "${env.BUILD_OUTPUT}" /E /COPY:DAT /DCOPY:T /R:2 /W:2 /NFL /NDL /NP /V
+
+set RC=%ERRORLEVEL%
+echo Robocopy exit code: %RC%
+
+REM treat 0-7 as success per robocopy docs
+if %RC% LEQ 7 (
+  echo Robocopy succeeded with code %RC%
+  exit /b 0
+)
+
+echo Robocopy failed with code %RC%
+exit /b %RC%
+"""
+    }
+  }
+}
+
  
         stage('Copy Artifacts to Target') {
             steps {
