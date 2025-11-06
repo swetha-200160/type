@@ -2,8 +2,9 @@ pipeline {
   agent any
 
   environment {
-    // Keep this pointing to the folder you want files copied to on the agent machine.
     BUILD_OUTPUT = "C:\\Users\\swethasuresh\\testing"
+    // change SOURCE_SUBFOLDER if you want a different folder copied (relative to workspace)
+    SOURCE_SUBFOLDER = "C:\\Users\\swethasuresh\\Desktop\\text.code"
   }
 
   stages {
@@ -17,7 +18,7 @@ pipeline {
 
     stage('Prepare & Build') {
       steps {
-        echo 'Prepare environment and run train/build if present'
+        echo 'Prepare environment and run train.py (if present)'
         bat '''
 @echo off
 cd /D "%WORKSPACE%"
@@ -32,15 +33,15 @@ call "venv\\Scripts\\activate"
 echo Upgrading pip...
 python -m pip install --upgrade pip
 
-if exist "requirements.txt" (
+if exist "%WORKSPACE%\\requirements.txt" (
   echo Installing requirements...
-  pip install -r "requirements.txt"
+  pip install -r "%WORKSPACE%\\requirements.txt"
 ) else (
   echo No requirements.txt; installing minimal deps...
   pip install scikit-learn joblib
 )
 
-REM Run train.py if it exists (prefer workspace root)
+REM Run train.py if present
 if exist "%WORKSPACE%\\train.py" (
   echo Running "%WORKSPACE%\\train.py"
   python "%WORKSPACE%\\train.py"
@@ -48,73 +49,68 @@ if exist "%WORKSPACE%\\train.py" (
   echo Running "%WORKSPACE%\\src\\model\\train.py"
   python "%WORKSPACE%\\src\\model\\train.py"
 ) else (
-  echo No train.py found - skipping training run
+  echo No train.py found - skipping training
 )
 
-REM safe echo
 echo Done prepare and build
 '''
       }
     }
 
-    stage('Collect all workspace files into build_output') {
-      steps {
-        echo 'Copying whole workspace (excluding .git) into build_artifacts...'
-        bat """
-@echo off
-set SRC=%WORKSPACE%
-set ART_DIR=%WORKSPACE%\\build_artifacts
-
-REM remove old artifacts and recreate
-if exist "%ART_DIR%" rmdir /S /Q "%ART_DIR%"
-mkdir "%ART_DIR%"
-
-REM Mirror workspace -> build_artifacts excluding .git and excluding the artifact folder itself
-robocopy "%SRC%" "%ART_DIR%" /MIR /XD "%SRC%\\.git" "%ART_DIR%" /R:2 /W:2 /NFL /NDL
-
-set RC=%ERRORLEVEL%
-echo Robocopy (workspace -> build_artifacts) exit code: %RC%
-
-echo ==== build_artifacts CONTENTS ====
-dir /S "%ART_DIR%"
-"""
-      }
-    }
-
-    stage('Copy all project files to BUILD_OUTPUT') {
+    stage('Copy selected folder to BUILD_OUTPUT') {
       steps {
         script {
-          // Use the env variable for destination so it's easy to change in one place
-          echo "Resolved BUILD_OUTPUT (Groovy): ${env.BUILD_OUTPUT}"
+          // Expand Groovy env vars into the batch script
+          def dest = env.BUILD_OUTPUT.replaceAll('\\\\','\\\\\\\\') // keep readable if needed
+          def sub = env.SOURCE_SUBFOLDER
+          echo "Will try to copy workspace subfolder: ${sub} to ${env.BUILD_OUTPUT}"
           bat """
 @echo off
-set SRC=%WORKSPACE%
-set DEST=${env.BUILD_OUTPUT}
+setlocal
+set SRC=%WORKSPACE%\\${sub}
+set DEST="${env.BUILD_OUTPUT}"
 
-echo ============================================
-echo Copying all files from:
-echo   %SRC%
-echo to:
-echo   %DEST%
-echo ============================================
+echo =====================================================
+echo Trying to copy folder: %SRC%
+echo Destination root: %DEST%
+echo =====================================================
 
-REM Ensure destination exists
-if not exist "%DEST%" (
-  echo Creating destination folder...
-  mkdir "%DEST%"
-)
-
-REM Copy everything except .git, venv, and the artifact folder
-robocopy "%SRC%" "%DEST%" /E /XO /R:2 /W:2 /XD "%SRC%\\.git" "%SRC%\\venv" "%SRC%\\build_artifacts" /NFL /NDL /NP /V
-set RC=%ERRORLEVEL%
-
-echo Robocopy exit code: %RC%
-if %RC% LEQ 7 (
-  echo Copy succeeded with code %RC%
-  exit /b 0
+REM If the specified subfolder exists, copy that folder only
+if exist "%SRC%" (
+  echo Source subfolder found. Copying "%SRC%" -> "%DEST%\\${sub.replaceAll('\\\\','\\\\\\')%2F}"
+  REM Ensure destination exists
+  if not exist %DEST% mkdir %DEST%
+  REM Create parent path for subfolder inside destination
+  REM Copy the contents of the subfolder into DEST\\<subfolder-name>
+  robocopy "%SRC%" "%DEST%\\${sub.replaceAll('\\\\','\\\\')}" /E /COPY:DAT /DCOPY:T /R:2 /W:2 /NFL /NDL /NP /V
+  set RC=%ERRORLEVEL%
+  echo robocopy (subfolder -> dest) exit code: %RC%
+  if %RC% LEQ 7 (
+    echo Subfolder copy succeeded.
+    endlocal
+    exit /b 0
+  ) else (
+    echo Subfolder copy failed with code %RC%.
+    endlocal
+    exit /b %RC%
+  )
 ) else (
-  echo Copy failed with code %RC%
-  exit /b %RC%
+  echo Subfolder not found: "%SRC%". Falling back to copying whole workspace.
+  REM Copy entire workspace (exclude .git, venv, build_artifacts)
+  set SRCROOT=%WORKSPACE%
+  if not exist %DEST% mkdir %DEST%
+  robocopy "%SRCROOT%" "%DEST%" /E /COPY:DAT /DCOPY:T /R:2 /W:2 /XD "%SRCROOT%\\.git" "%SRCROOT%\\venv" "%SRCROOT%\\build_artifacts" /NFL /NDL /NP /V
+  set RC=%ERRORLEVEL%
+  echo robocopy (workspace -> dest) exit code: %RC%
+  if %RC% LEQ 7 (
+    echo Workspace copy succeeded.
+    endlocal
+    exit /b 0
+  ) else (
+    echo Workspace copy failed with code %RC%.
+    endlocal
+    exit /b %RC%
+  )
 )
 """
         }
@@ -124,10 +120,11 @@ if %RC% LEQ 7 (
 
   post {
     success {
-      echo 'Pipeline completed: files copied to BUILD_OUTPUT (if run on this agent).'
+      echo "Files copied to BUILD_OUTPUT (if this agent can write to that path)."
+      echo "Note: BUILD_OUTPUT is on the agent that ran the job (check 'Running on' at top of Console Output)."
     }
     failure {
-      echo 'Pipeline failed — check Console Output for details.'
+      echo "Pipeline failed — check Console Output for robocopy exit codes and errors."
     }
   }
-} // end pipeline
+}
