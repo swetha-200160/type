@@ -1,161 +1,136 @@
 pipeline {
-    agent any
- 
-    environment {
-        BUILD_OUTPUT = "C:\\Users\\swethasuresh\\testing"
+  agent any
+
+  environment {
+    // If you want to copy directly to your PC across the network, replace with UNC like "\\\\MY-PC\\JenkinsShare"
+    BUILD_OUTPUT = "C:\\Users\\swethasuresh\\testing"
+  }
+
+  stages {
+    stage('Checkout') {
+      steps {
+        git branch: 'master',
+            credentialsId: 'gitrepo',
+            url: 'https://github.com/swetha-200160/type.git'
+      }
     }
- 
-    stages {
-        stage('Checkout') {
-            steps {
-                git branch: 'master',
-                    credentialsId: 'gitrepo',
-                    url: 'https://github.com/swetha-200160/type.git'
-            }
-        }
- 
-        stage('Build') {
-            steps {
-                echo 'Building Python project...'
-                bat '''
+
+    stage('Prepare & Build') {
+      steps {
+        echo 'Prepare environment and run train/build if present'
+        bat '''
 @echo off
-echo ==== PYTHON BUILD START ====
- 
-REM Use workspace variable - safer than hard-coded paths
-setlocal
- 
+cd /D "%WORKSPACE%"
+
 REM create venv if needed
 if not exist "venv\\Scripts\\python.exe" (
-    py -3 -m venv venv
+  echo Creating venv...
+  py -3 -m venv venv
 )
 call "venv\\Scripts\\activate"
- 
+
+echo Upgrading pip...
 python -m pip install --upgrade pip
- 
+
 if exist "requirements.txt" (
-    pip install -r "requirements.txt"
+  echo Installing requirements...
+  pip install -r "requirements.txt"
 ) else (
-    pip install scikit-learn joblib
+  echo No requirements.txt; installing minimal deps...
+  pip install scikit-learn joblib
 )
- 
-REM Prefer workspace train.py
+
+REM Run train.py if it exists (prefer workspace root)
 if exist "%WORKSPACE%\\train.py" (
-    echo Running "%WORKSPACE%\\train.py"
-    python "%WORKSPACE%\\train.py"
+  echo Running "%WORKSPACE%\\train.py"
+  python "%WORKSPACE%\\train.py"
+) else if exist "%WORKSPACE%\\src\\model\\train.py" (
+  echo Running "%WORKSPACE%\\src\\model\\train.py"
+  python "%WORKSPACE%\\src\\model\\train.py"
 ) else (
-    REM Try alternative path - NOTE: must point to a .py script
-    if exist "C:\\ProgramData\\python pjt\\src\\model\\train.py" (
-        echo Running "C:\\ProgramData\\python pjt\\src\\model\\train.py"
-        python "C:\\ProgramData\\python pjt\\src\\model\\train.py"
-    ) else (
-        echo No train.py found in workspace or alternate path
-        exit /b 0
-    )
+  echo No train.py found - skipping training run
 )
- 
-endlocal
-echo ==== PYTHON BUILD END ====
+
+echo Done prepare & build
 '''
-            }
-        }
- 
-        stage('Debug - list outputs') {
-            steps {
-                bat '''
+      }
+    }
+
+    stage('Collect all workspace files into build_artifacts') {
+      steps {
+        echo 'Copying whole workspace (excluding .git) into build_artifacts...'
+        bat """
 @echo off
-echo ====== WORKSPACE ROOT ======
-dir /B "%WORKSPACE%"
- 
-echo ====== src\\model ======
-if exist "%WORKSPACE%\\src\\model" (
-  dir /S "%WORKSPACE%\\src\\model"
-) else (
-  echo src\\model not present
-)
- 
-echo ====== build_artifacts preview (if exists) ======
-if exist "%WORKSPACE%\\build_artifacts" (
-  dir /S "%WORKSPACE%\\build_artifacts"
-) else (
-  echo build_artifacts not present yet
-)
-'''
-            }
-        }
- 
-        stage('Gather Artifacts') {
-  steps {
-    bat """
-@echo off
-echo ==== GATHER ARTIFACTS ====
-echo WORKSPACE=%WORKSPACE%
-set ARTIFACT_DIR=%WORKSPACE%\\build_artifacts
+set SRC=%WORKSPACE%
+set ART_DIR=%WORKSPACE%\\build_artifacts
 
-REM remove old and create new
-if exist "%ARTIFACT_DIR%" (
-  echo Removing existing %ARTIFACT_DIR%
-  rmdir /S /Q "%ARTIFACT_DIR%"
-)
-mkdir "%ARTIFACT_DIR%"
+REM remove old artifacts and recreate
+if exist "%ART_DIR%" rmdir /S /Q "%ART_DIR%"
+mkdir "%ART_DIR%"
 
-REM copy model and folders (only if exist)
-if exist "%WORKSPACE%\\src\\model\\model.pkl" (
-  echo Copying model.pkl
-  copy "%WORKSPACE%\\src\\model\\model.pkl" "%ARTIFACT_DIR%\\"
-)
+REM Mirror workspace -> build_artifacts excluding .git and excluding the artifact folder itself
+robocopy "%SRC%" "%ART_DIR%" /MIR /XD "%SRC%\\.git" "%ART_DIR%" /R:2 /W:2 /NFL /NDL
 
-if exist "%WORKSPACE%\\src\\model" (
-  echo Copying full src\\model folder
-  xcopy "%WORKSPACE%\\src\\model\\" "%ARTIFACT_DIR%\\model\\" /E /I /Y
-)
-
-if exist "%WORKSPACE%\\dist" (
-  echo Copying dist folder
-  xcopy "%WORKSPACE%\\dist\\" "%ARTIFACT_DIR%\\dist\\" /E /I /Y
-)
-
-if exist "%WORKSPACE%\\requirements.txt" copy "%WORKSPACE%\\requirements.txt" "%ARTIFACT_DIR%\\"
-if exist "%WORKSPACE%\\train.log" copy "%WORKSPACE%\\train.log" "%ARTIFACT_DIR%\\"
-
-echo ==== ARTIFACT_DIR CONTENTS ====
-dir "%ARTIFACT_DIR%"
-"""
-   }
-}
-
-        stage('Copy Artifacts to Target') {
-            steps {
-                script {
-                    bat """
-@echo off
-set ARTIFACT_DIR=%WORKSPACE%\\build_artifacts
- 
-if not exist "${env.BUILD_OUTPUT}" mkdir "${env.BUILD_OUTPUT}"
- 
-robocopy "%ARTIFACT_DIR%" "${env.BUILD_OUTPUT}" /E /XO /R:2 /W:2 /NFL /NDL
- 
 set RC=%ERRORLEVEL%
-echo Robocopy exit code: %RC%
+echo Robocopy (workspace -> build_artifacts) exit code: %RC%
+
+echo ==== build_artifacts CONTENTS ====
+dir /S "%ART_DIR%"
+"""
+      }
+    }
+
+    stage('Copy build_artifacts to BUILD_OUTPUT') {
+      steps {
+        script {
+          echo "Resolved BUILD_OUTPUT (Groovy): ${env.BUILD_OUTPUT}"
+          bat """
+@echo off
+set ART_DIR=%WORKSPACE%\\build_artifacts
+set DEST=${env.BUILD_OUTPUT}
+
+if not exist "%ART_DIR%" (
+  echo ERROR: %ART_DIR% does not exist - nothing to copy
+  exit /b 5
+)
+
+REM Ensure destination exists on the agent
+if not exist "%DEST%" (
+  echo Creating destination: %DEST%
+  mkdir "%DEST%"
+) else (
+  echo Destination exists: %DEST%
+)
+
+REM Copy artifacts to destination (preserve timestamps)
+robocopy "%ART_DIR%" "%DEST%" /E /COPY:DAT /DCOPY:T /R:2 /W:2 /NFL /NDL /NP /V
+set RC=%ERRORLEVEL%
+echo Robocopy (build_artifacts -> DEST) exit code: %RC%
+
+REM robocopy codes 0-7 are OK
 if %RC% LEQ 7 (
-  echo Robocopy finished with acceptable code %RC%. Exiting success.
+  echo Copy succeeded with code %RC%
   exit /b 0
 )
-echo Robocopy FAILED with code %RC%. Exiting with failure.
+
+echo Copy failed with code %RC%
 exit /b %RC%
 """
-                }
-            }
         }
+      }
     }
- 
-    post {
-        success {
-            echo 'Build completed successfully and artifacts copied to target folder'
-        }
-        failure {
-            echo 'Build or copy failed!'
-        }
+  }
+
+  post {
+    always {
+      // archive artifacts so you can download them from Jenkins UI
+      archiveArtifacts artifacts: 'build_artifacts/**', allowEmptyArchive: false
     }
+    success {
+      echo 'Pipeline completed: artifacts copied and archived (if present).'
+    }
+    failure {
+      echo 'Pipeline failed — check Console Output for details.'
+    }
+  }
 }
- 
- 
