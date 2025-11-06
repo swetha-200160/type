@@ -120,59 +120,9 @@ if exist "%WORKSPACE%\\train.log" copy "%WORKSPACE%\\train.log" "%ARTIFACT_DIR%\
 echo ==== ARTIFACT_DIR CONTENTS ====
 dir "%ARTIFACT_DIR%"
 """
-  }
+   }
 }
 
-stage('Copy Artifacts to Target') {
-  steps {
-    script {
-      // show exact groovy-expanded path in pipeline log
-      echo "Resolved BUILD_OUTPUT (Groovy): ${env.BUILD_OUTPUT}"
-
-      bat """
-@echo off
-echo ==== COPY TO TARGET ====
-set ARTIFACT_DIR=%WORKSPACE%\\build_artifacts
-echo ARTIFACT_DIR=%ARTIFACT_DIR%
-echo BUILD_OUTPUT=${env.BUILD_OUTPUT}
-
-REM Make sure artifact dir exists and is not empty
-if not exist "%ARTIFACT_DIR%" (
-  echo ERROR: Artifact dir does not exist: %ARTIFACT_DIR%
-  exit /b 1
-)
-
-REM list files to copy
-dir /S "%ARTIFACT_DIR%"
-
-REM Ensure destination exists (create)
-if not exist "${env.BUILD_OUTPUT}" (
-  echo Creating destination ${env.BUILD_OUTPUT}
-  mkdir "${env.BUILD_OUTPUT}"
-) else (
-  echo Destination already exists
-)
-
-REM Robocopy - copy files and subfolders, preserve timestamps, retry minimal
-robocopy "%ARTIFACT_DIR%" "${env.BUILD_OUTPUT}" /E /COPY:DAT /DCOPY:T /R:2 /W:2 /NFL /NDL /NP /V
-
-set RC=%ERRORLEVEL%
-echo Robocopy exit code: %RC%
-
-REM treat 0-7 as success per robocopy docs
-if %RC% LEQ 7 (
-  echo Robocopy succeeded with code %RC%
-  exit /b 0
-)
-
-echo Robocopy failed with code %RC%
-exit /b %RC%
-"""
-    }
-  }
-}
-
- 
         stage('Copy Artifacts to Target') {
             steps {
                 script {
