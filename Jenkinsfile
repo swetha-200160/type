@@ -80,46 +80,44 @@ dir /S "%ART_DIR%"
       }
     }
 
-    stage('Copy build_artifacts to BUILD_OUTPUT') {
-      steps {
-        script {
-          echo "Resolved BUILD_OUTPUT (Groovy): ${env.BUILD_OUTPUT}"
-          bat """
+   stage('Copy all project files to BUILD_OUTPUT') {
+  steps {
+    script {
+      echo "Resolved BUILD_OUTPUT (Groovy): ${env.BUILD_OUTPUT}"
+      bat """
 @echo off
-set ART_DIR=%WORKSPACE%\\build_artifacts
+set SRC=%WORKSPACE%
 set DEST=${env.BUILD_OUTPUT}
 
-if not exist "%ART_DIR%" (
-  echo ERROR: %ART_DIR% does not exist - nothing to copy
-  exit /b 5
-)
+echo ============================================
+echo Copying all files from:
+echo   %SRC%
+echo to:
+echo   %DEST%
+echo ============================================
 
-REM Ensure destination exists on the agent
+REM Ensure destination exists
 if not exist "%DEST%" (
-  echo Creating destination: %DEST%
+  echo Creating destination folder...
   mkdir "%DEST%"
-) else (
-  echo Destination exists: %DEST%
 )
 
-REM Copy artifacts to destination (preserve timestamps)
-robocopy "%ART_DIR%" "%DEST%" /E /COPY:DAT /DCOPY:T /R:2 /W:2 /NFL /NDL /NP /V
+REM Copy everything except .git and Jenkins folders
+robocopy "%SRC%" "%DEST%" /E /XO /R:2 /W:2 /XD ".git" "venv" "build_artifacts" /NFL /NDL /NP /V
 set RC=%ERRORLEVEL%
-echo Robocopy (build_artifacts -> DEST) exit code: %RC%
 
-REM robocopy codes 0-7 are OK
+echo Robocopy exit code: %RC%
 if %RC% LEQ 7 (
   echo Copy succeeded with code %RC%
   exit /b 0
+) else (
+  echo Copy failed with code %RC%
+  exit /b %RC%
 )
-
-echo Copy failed with code %RC%
-exit /b %RC%
 """
-        }
-      }
     }
   }
+}
 
   post {
     always {
