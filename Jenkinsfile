@@ -2,7 +2,7 @@ pipeline {
   agent any
 
   environment {
-    // Change to a UNC share like "\\\\MY-PC\\JenkinsShare" if you want to copy to your PC across the network
+    // Keep this pointing to the folder you want files copied to on the agent machine.
     BUILD_OUTPUT = "C:\\Users\\swethasuresh\\testing"
   }
 
@@ -51,13 +51,13 @@ if exist "%WORKSPACE%\\train.py" (
   echo No train.py found - skipping training run
 )
 
-REM safe echo without ampersand
+REM safe echo
 echo Done prepare and build
 '''
       }
     }
 
-    stage('Collect all workspace files into build_artifacts') {
+    stage('Collect all workspace files into build_output') {
       steps {
         echo 'Copying whole workspace (excluding .git) into build_artifacts...'
         bat """
@@ -84,17 +84,18 @@ dir /S "%ART_DIR%"
     stage('Copy all project files to BUILD_OUTPUT') {
       steps {
         script {
+          // Use the env variable for destination so it's easy to change in one place
           echo "Resolved BUILD_OUTPUT (Groovy): ${env.BUILD_OUTPUT}"
           bat """
 @echo off
 set SRC=%WORKSPACE%
-set DEST="C:\\Users\\swethasuresh\\testing"
+set DEST=${env.BUILD_OUTPUT}
 
 echo ============================================
 echo Copying all files from:
 echo   %SRC%
 echo to:
-echo   "C:\\Users\\swethasuresh\\testing"
+echo   %DEST%
 echo ============================================
 
 REM Ensure destination exists
@@ -122,12 +123,8 @@ if %RC% LEQ 7 (
   } // end stages
 
   post {
-    always {
-      // archive artifacts so you can download them from Jenkins UI
-      archiveArtifacts artifacts: 'build_artifacts/**', allowEmptyArchive: false
-    }
     success {
-      echo 'Pipeline completed: artifacts copied and archived (if present).'
+      echo 'Pipeline completed: files copied to BUILD_OUTPUT (if run on this agent).'
     }
     failure {
       echo 'Pipeline failed — check Console Output for details.'
