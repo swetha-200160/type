@@ -1,130 +1,137 @@
 pipeline {
-  agent any
-
-  environment {
-    BUILD_OUTPUT = "C:\\Users\\swethasuresh\\testing"
-    // change SOURCE_SUBFOLDER if you want a different folder copied (relative to workspace)
-    SOURCE_SUBFOLDER = "C:\\Users\\swethasuresh\\Desktop\\text.code"
-  }
-
-  stages {
-    stage('Checkout') {
-      steps {
-        git branch: 'master',
-            credentialsId: 'gitrepo',
-            url: 'https://github.com/swetha-200160/type.git'
-      }
+    agent any
+ 
+    environment {
+        BUILD_OUTPUT = "C:\\Users\\swethasuresh\\testing"
     }
-
-    stage('Prepare & Build') {
-      steps {
-        echo 'Prepare environment and run train.py (if present)'
-        bat '''
+ 
+    stages {
+        stage('Checkout') {
+            steps {
+                git branch: 'master',
+                    credentialsId: 'gitrepo',
+                    url: 'https://github.com/swetha-200160/type.git'
+            }
+        }
+ 
+        stage('Build') {
+            steps {
+                echo 'Building Python project...'
+                bat '''
 @echo off
-cd /D "%WORKSPACE%"
-
+echo ==== PYTHON BUILD START ====
+ 
+REM Use workspace variable - safer than hard-coded paths
+setlocal
+ 
 REM create venv if needed
 if not exist "venv\\Scripts\\python.exe" (
-  echo Creating venv...
-  py -3 -m venv venv
+    py -3 -m venv venv
 )
 call "venv\\Scripts\\activate"
-
-echo Upgrading pip...
+ 
 python -m pip install --upgrade pip
-
-if exist "%WORKSPACE%\\requirements.txt" (
-  echo Installing requirements...
-  pip install -r "%WORKSPACE%\\requirements.txt"
+ 
+if exist "requirements.txt" (
+    pip install -r "requirements.txt"
 ) else (
-  echo No requirements.txt; installing minimal deps...
-  pip install scikit-learn joblib
+    pip install scikit-learn joblib
 )
-
-REM Run train.py if present
+ 
+REM Prefer workspace train.py
 if exist "%WORKSPACE%\\train.py" (
-  echo Running "%WORKSPACE%\\train.py"
-  python "%WORKSPACE%\\train.py"
-) else if exist "%WORKSPACE%\\src\\model\\train.py" (
-  echo Running "%WORKSPACE%\\src\\model\\train.py"
-  python "%WORKSPACE%\\src\\model\\train.py"
+    echo Running "%WORKSPACE%\\train.py"
+    python "%WORKSPACE%\\train.py"
 ) else (
-  echo No train.py found - skipping training
+    REM Try alternative path - NOTE: must point to a .py script
+    if exist "C:\\ProgramData\\python pjt\\src\\model\\train.py" (
+        echo Running "C:\\ProgramData\\python pjt\\src\\model\\train.py"
+        python "C:\\ProgramData\\python pjt\\src\\model\\train.py"
+    ) else (
+        echo No train.py found in workspace or alternate path
+        exit /b 0
+    )
 )
-
-echo Done prepare and build
+ 
+endlocal
+echo ==== PYTHON BUILD END ====
 '''
-      }
-    }
-
-    stage('Copy selected folder to BUILD_OUTPUT') {
-      steps {
-        script {
-          // Expand Groovy env vars into the batch script
-          def dest = env.BUILD_OUTPUT.replaceAll('\\\\','\\\\\\\\') // keep readable if needed
-          def sub = env.SOURCE_SUBFOLDER
-          echo "Will try to copy workspace subfolder: ${sub} to ${env.BUILD_OUTPUT}"
-          bat """
-@echo off
-setlocal
-set SRC=%WORKSPACE%\\${sub}
-set DEST="${env.BUILD_OUTPUT}"
-
-echo =====================================================
-echo Trying to copy folder: %SRC%
-echo Destination root: %DEST%
-echo =====================================================
-
-REM If the specified subfolder exists, copy that folder only
-if exist "%SRC%" (
-  echo Source subfolder found. Copying "%SRC%" -> "%DEST%\\${sub.replaceAll('\\\\','\\\\\\')%2F}"
-  REM Ensure destination exists
-  if not exist %DEST% mkdir %DEST%
-  REM Create parent path for subfolder inside destination
-  REM Copy the contents of the subfolder into DEST\\<subfolder-name>
-  robocopy "%SRC%" "%DEST%\\${sub.replaceAll('\\\\','\\\\')}" /E /COPY:DAT /DCOPY:T /R:2 /W:2 /NFL /NDL /NP /V
-  set RC=%ERRORLEVEL%
-  echo robocopy (subfolder -> dest) exit code: %RC%
-  if %RC% LEQ 7 (
-    echo Subfolder copy succeeded.
-    endlocal
-    exit /b 0
-  ) else (
-    echo Subfolder copy failed with code %RC%.
-    endlocal
-    exit /b %RC%
-  )
-) else (
-  echo Subfolder not found: "%SRC%". Falling back to copying whole workspace.
-  REM Copy entire workspace (exclude .git, venv, build_artifacts)
-  set SRCROOT=%WORKSPACE%
-  if not exist %DEST% mkdir %DEST%
-  robocopy "%SRCROOT%" "%DEST%" /E /COPY:DAT /DCOPY:T /R:2 /W:2 /XD "%SRCROOT%\\.git" "%SRCROOT%\\venv" "%SRCROOT%\\build_artifacts" /NFL /NDL /NP /V
-  set RC=%ERRORLEVEL%
-  echo robocopy (workspace -> dest) exit code: %RC%
-  if %RC% LEQ 7 (
-    echo Workspace copy succeeded.
-    endlocal
-    exit /b 0
-  ) else (
-    echo Workspace copy failed with code %RC%.
-    endlocal
-    exit /b %RC%
-  )
-)
-"""
+            }
         }
-      }
-    }
-  } // end stages
-
-  post {
-    success {
-      echo "Files copied to BUILD_OUTPUT (if this agent can write to that path)."
-      echo "Note: BUILD_OUTPUT is on the agent that ran the job (check 'Running on' at top of Console Output)."
-    }
-    failure {
-      echo "Pipeline failed — check Console Output for robocopy exit codes and errors."
-    }
-  }
+ 
+        stage('Debug - list outputs') {
+            steps {
+                bat '''
+@echo off
+echo ====== WORKSPACE ROOT ======
+dir /B "%WORKSPACE%"
+ 
+echo ====== src\\model ======
+if exist "%WORKSPACE%\\src\\model" (
+  dir /S "%WORKSPACE%\\src\\model"
+) else (
+  echo src\\model not present
+)
+ 
+echo ====== build_artifacts preview (if exists) ======
+if exist "%WORKSPACE%\\build_artifacts" (
+  dir /S "%WORKSPACE%\\build_artifacts"
+) else (
+  echo build_artifacts not present yet
+)
+'''
+            }
+        }
+ 
+        stage('Gather Artifacts') {
+  steps {
+    bat """
+@echo off
+echo ==== GATHER ARTIFACTS ====
+echo WORKSPACE=%WORKSPACE%
+set ARTIFACT_DIR=%WORKSPACE%\\build_artifacts
+ 
+REM remove old and create new
+if exist "%ARTIFACT_DIR%" (
+  echo Removing existing %ARTIFACT_DIR%
+  rmdir /S /Q "%ARTIFACT_DIR%"
+)
+mkdir "%ARTIFACT_DIR%"
+ 
+REM copy model and folders (only if exist)
+if exist "%WORKSPACE%\\src\\model\\model.pkl" (
+  echo Copying model.pkl
+  copy "%WORKSPACE%\\src\\model\\model.pkl" "%ARTIFACT_DIR%\\"
+)
+ 
+if exist "%WORKSPACE%\\src\\model" (
+  echo Copying full src\\model folder
+  xcopy "%WORKSPACE%\\src\\model\\" "%ARTIFACT_DIR%\\model\\" /E /I /Y
+)
+ 
+if exist "%WORKSPACE%\\dist" (
+  echo Copying dist folder
+  xcopy "%WORKSPACE%\\dist\\" "%ARTIFACT_DIR%\\dist\\" /E /I /Y
+)
+ 
+if exist "%WORKSPACE%\\requirements.txt" copy "%WORKSPACE%\\requirements.txt" "%ARTIFACT_DIR%\\"
+if exist "%WORKSPACE%\\train.log" copy "%WORKSPACE%\\train.log" "%ARTIFACT_DIR%\\"
+ 
+echo ==== ARTIFACT_DIR CONTENTS ====
+dir "%ARTIFACT_DIR%"
+"""
+   }
 }
+
+    post {
+        success {
+            echo 'Build completed successfully and artifacts copied to target folder'
+        }
+        failure {
+            echo 'Build or copy failed!'
+        }
+    }
+}
+ 
+ 
+ 
