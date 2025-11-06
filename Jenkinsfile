@@ -122,7 +122,32 @@ dir "%ARTIFACT_DIR%"
 """
    }
 }
-
+ 
+        stage('Copy Artifacts to Target') {
+            steps {
+                script {
+                    bat """
+@echo off
+set ARTIFACT_DIR=%WORKSPACE%\\build_artifacts
+ 
+if not exist "${env.BUILD_OUTPUT}" mkdir "${env.BUILD_OUTPUT}"
+ 
+robocopy "%ARTIFACT_DIR%" "${env.BUILD_OUTPUT}" /E /XO /R:2 /W:2 /NFL /NDL
+ 
+set RC=%ERRORLEVEL%
+echo Robocopy exit code: %RC%
+if %RC% LEQ 7 (
+  echo Robocopy finished with acceptable code %RC%. Exiting success.
+  exit /b 0
+)
+echo Robocopy FAILED with code %RC%. Exiting with failure.
+exit /b %RC%
+"""
+                }
+            }
+        }
+    }
+ 
     post {
         success {
             echo 'Build completed successfully and artifacts copied to target folder'
