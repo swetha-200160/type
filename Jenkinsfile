@@ -1,157 +1,116 @@
 pipeline {
-    agent any
- 
-    environment {
-        BUILD_OUTPUT = "C:\\Users\\swethasuresh\\testing"
+  agent any
+
+  environment {
+    BUILD_OUTPUT = "C:\\Users\\swethasuresh\\testing"
+    // Comma-separated list of folders (relative to workspace) that you want copied into the build files.
+    // Edit this value to include the exact folder names you want (examples: build,src,dist,reports)
+    FOLDERS_TO_COPY = "build,src,dist,reports"
+  }
+
+  stages {
+    stage('Checkout') {
+      steps {
+        git branch: 'master',
+            credentialsId: 'gitrepo',
+            url: 'https://github.com/swetha-200160/type.git'
+      }
     }
- 
-    stages {
-        stage('Checkout') {
-            steps {
-                git branch: 'master',
-                    credentialsId: 'gitrepo',
-                    url: 'https://github.com/swetha-200160/type.git'
-            }
-        }
- 
-        stage('Build') {
-            steps {
-                echo 'Building Python project...'
-                bat '''
+
+    stage('Build (run training if any)') {
+      steps {
+        echo 'Running build/train (if present)...'
+        bat '''
 @echo off
-echo ==== PYTHON BUILD START ====
- 
-REM Use workspace variable - safer than hard-coded paths
-setlocal
- 
-REM create venv if needed
-if not exist "venv\\Scripts\\python.exe" (
-    py -3 -m venv venv
-)
-call "venv\\Scripts\\activate"
- 
-python -m pip install --upgrade pip
- 
-if exist "requirements.txt" (
-    pip install -r "requirements.txt"
-) else (
-    pip install scikit-learn joblib
-)
- 
-REM Prefer workspace train.py
+echo ==== BUILD / TRAIN STAGE ====
+
 if exist "%WORKSPACE%\\train.py" (
-    echo Running "%WORKSPACE%\\train.py"
-    python "%WORKSPACE%\\train.py"
+  echo Running "%WORKSPACE%\\train.py"
+  python "%WORKSPACE%\\train.py"
 ) else (
-    REM Try alternative path - NOTE: must point to a .py script
-    if exist "C:\\ProgramData\\python pjt\\src\\model\\train.py" (
-        echo Running "C:\\ProgramData\\python pjt\\src\\model\\train.py"
-        python "C:\\ProgramData\\python pjt\\src\\model\\train.py"
-    ) else (
-        echo No train.py found in workspace or alternate path
-        exit /b 0
-    )
+  echo No train.py in workspace (skipping)
 )
- 
-endlocal
-echo ==== PYTHON BUILD END ====
+
+echo ==== BUILD / TRAIN DONE ====
 '''
-            }
+      }
+    }
+
+    stage('Prepare build_artifacts (copy selected folders)') {
+      steps {
+        script {
+          // Use PowerShell inside a bat block to copy folder list robustly
+          bat """
+powershell -NoProfile -Command ^
+  $folders = '${env.FOLDERS_TO_COPY}' -split ',' | ForEach-Object { $_.Trim() } ; ^
+  $ws = $env:WORKSPACE ; ^
+  $art = Join-Path $ws 'build_artifacts' ; ^
+  if (Test-Path $art) { Remove-Item -Recurse -Force $art } ; ^
+  New-Item -ItemType Directory -Force -Path $art | Out-Null ; ^
+  foreach ($f in $folders) { ^
+    if ([string]::IsNullOrWhiteSpace($f)) { continue } ^
+    $src = Join-Path $ws $f ; ^
+    if (Test-Path $src) { ^
+      Write-Output \"Copying folder: $src -> $art\\$f\" ; ^
+      $dst = Join-Path $art $f ; ^
+      Copy-Item -Path $src -Destination $dst -Recurse -Force ; ^
+    } else { Write-Output \"Folder not present, skipping: $src\" } ^
+  } ; ^
+  Write-Output \"`nPrepared build_artifacts contents:\" ; ^
+  Get-ChildItem -Recurse -File $art | ForEach-Object { Write-Output (\"{0} {1}\" -f $_.Length, $_.FullName) }
+"""
         }
- 
-        stage('Debug - list outputs') {
-            steps {
-                bat '''
-@echo off
-echo ====== WORKSPACE ROOT ======
-dir /B "%WORKSPACE%"
- 
-echo ====== src\\model ======
-if exist "%WORKSPACE%\\src\\model" (
-  dir /S "%WORKSPACE%\\src\\model"
-) else (
-  echo src\\model not present
-)
- 
-echo ====== build_artifacts preview (if exists) ======
-if exist "%WORKSPACE%\\build_artifacts" (
-  dir /S "%WORKSPACE%\\build_artifacts"
-) else (
-  echo build_artifacts not present yet
-)
+      }
+    }
+
+    stage('Copy build_artifacts to BUILD_OUTPUT and verify') {
+      steps {
+        bat '''
+powershell -NoProfile -Command ^
+  $src = Join-Path $env:WORKSPACE 'build_artifacts'; ^
+  $dst = $env:BUILD_OUTPUT; ^
+  if (-not (Test-Path $src)) { Write-Error "No artifacts to copy: $src"; exit 2 } ; ^
+  if (-not (Test-Path $dst)) { New-Item -ItemType Directory -Force -Path $dst | Out-Null } ; ^
+  Write-Output "Copying artifacts from $src to $dst"; ^
+  Get-ChildItem -Recurse -File $src | ForEach-Object { ^
+    $rel = $_.FullName.Substring($src.Length + 1); ^
+    $target = Join-Path $dst $rel; ^
+    $tDir = Split-Path $target -Parent; ^
+    if (-not (Test-Path $tDir)) { New-Item -ItemType Directory -Force -Path $tDir | Out-Null } ^
+    Copy-Item -Path $_.FullName -Destination $target -Force ; ^
+  } ; ^
+  Write-Output "`nTarget listing (size bytes):"; ^
+  Get-ChildItem -Recurse -File $dst | ForEach-Object { Write-Output (\"{0} {1}\" -f $_.Length, $_.FullName) } ; ^
+  Write-Output "`nVerifying MD5 (source -> target)"; ^
+  $fail = $false; ^
+  Get-ChildItem -Recurse -File $src | ForEach-Object { ^
+    $srcFile = $_.FullName; ^
+    $rel = $srcFile.Substring($src.Length + 1); ^
+    $tgtFile = Join-Path $dst $rel; ^
+    if (-not (Test-Path $tgtFile)) { Write-Error \"MISSING target: $tgtFile\"; $fail = $true; return } ^
+    if ((Get-Item $srcFile).Length -eq 0) { Write-Error \"ZERO-SIZE SOURCE: $srcFile\"; $fail = $true; return } ^
+    if ((Get-Item $srcFile).Length -ne (Get-Item $tgtFile).Length) { Write-Error \"SIZE MISMATCH: $srcFile != $tgtFile\"; $fail = $true; return } ^
+    $hSrc = (certutil -hashfile $srcFile MD5) -join \"`n\" ; $hTgt = (certutil -hashfile $tgtFile MD5) -join \"`n\" ; ^
+    if ($hSrc -ne $hTgt) { Write-Error \"HASH MISMATCH: $srcFile\"; $fail = $true; return } ^
+  } ; ^
+  if ($fail) { Write-Error 'Artifact verification failed'; exit 3 } else { Write-Output 'All artifacts copied and verified OK' }
 '''
-            }
-        }
- 
-        stage('Gather Artifacts') {
-            steps {
-                script {
-                    bat """
-@echo off
-set ARTIFACT_DIR=%WORKSPACE%\\build_artifacts
- 
-if exist "%ARTIFACT_DIR%" rmdir /S /Q "%ARTIFACT_DIR%"
-mkdir "%ARTIFACT_DIR%"
- 
-REM copy model file if present
-if exist "%WORKSPACE%\\src\\model\\model.pkl" (
-  copy "%WORKSPACE%\\src\\model\\model.pkl" "%ARTIFACT_DIR%\\"
-)
- 
-REM copy entire model folder if you want
-if exist "%WORKSPACE%\\src\\model" (
-  xcopy "%WORKSPACE%\\src\\model\\" "%ARTIFACT_DIR%\\model\\" /E /I /Y
-)
- 
-REM copy dist folder
-if exist "%WORKSPACE%\\dist" (
-  xcopy "%WORKSPACE%\\dist\\" "%ARTIFACT_DIR%\\dist\\" /E /I /Y
-)
- 
-REM copy other useful files
-if exist "%WORKSPACE%\\requirements.txt" copy "%WORKSPACE%\\requirements.txt" "%ARTIFACT_DIR%\\"
-if exist "%WORKSPACE%\\train.log" copy "%WORKSPACE%\\train.log" "%ARTIFACT_DIR%\\"
- 
-echo Artifacts prepared under %ARTIFACT_DIR%
-dir "%ARTIFACT_DIR%"
-"""
-                }
-            }
-        }
- 
-        stage('Copy Artifacts to Target') {
-            steps {
-                script {
-                    bat """
-@echo off
-set ARTIFACT_DIR=%WORKSPACE%\\build_artifacts
- 
-if not exist "${env.BUILD_OUTPUT}" mkdir "${env.BUILD_OUTPUT}"
- 
-robocopy "%ARTIFACT_DIR%" "${env.BUILD_OUTPUT}" /E /XO /R:2 /W:2 /NFL /NDL
- 
-set RC=%ERRORLEVEL%
-echo Robocopy exit code: %RC%
-if %RC% LEQ 7 (
-  echo Robocopy finished with acceptable code %RC%. Exiting success.
-  exit /b 0
-)
-echo Robocopy FAILED with code %RC%. Exiting with failure.
-exit /b %RC%
-"""
-                }
-            }
-        }
+      }
     }
- 
-    post {
-        success {
-            echo 'Build completed successfully and artifacts copied to target folder'
-        }
-        failure {
-            echo 'Build or copy failed!'
-        }
+
+    stage('Archive') {
+      steps {
+        archiveArtifacts artifacts: 'build_artifacts/**', fingerprint: true
+      }
     }
+  }
+
+  post {
+    success {
+      echo 'Folders copied to BUILD_OUTPUT and archived successfully.'
+    }
+    failure {
+      echo 'Copy or verification failed — check console for details.'
+    }
+  }
 }
- 
- 
