@@ -1,10 +1,13 @@
-# My AI Sample Project
+# StudentPerformancePrediction-ML
+This is a simple machine learning project using classifiers for predicting factors which affect student grades, using data from CSV file
 
-This is a minimal Python sample project for testing Jenkins pipelines.
 
-Files:
-- Jenkinsfile : cross-platform pipeline
-- requirements.txt : dependencies
-- main.py : example training script
-- test_sample.py : pytest test
-- setup.py : optional packaging
+In this Project, a dataset which has students from nationalities, different grade levels and also soe determining factors like,
+number of hands raised, nuber attendances, number of hours studied etc. is used, which is a CSV File.
+
+
+And a few different classifiers and ML models have been used to get the most accurate predictions of which factors,
+affect the marks of students.
+
+A few visual aids like graphs and confusion matrix have been created, to show the results.
+Also additional heatmaps and other charts have been added to further demonstrate how data modelling and engineering works.
